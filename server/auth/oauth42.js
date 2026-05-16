@@ -151,53 +151,67 @@ router.post('/direct-login', async (req, res) => {
   if (!login) return res.status(400).json({ error: 'Login required' });
 
   try {
-    // 1. Get an App Token using Client Credentials
-    const tokenResponse = await fetch(config.FORTYTWO.TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        grant_type: 'client_credentials',
-        client_id: config.FORTYTWO.CLIENT_ID,
-        client_secret: config.FORTYTWO.CLIENT_SECRET,
-      }),
-    });
-
-    const tokenData = await tokenResponse.json();
-    if (!tokenData.access_token) {
-      console.error('[OAuth] Client Credentials failed:', tokenData);
-      return res.status(500).json({ error: 'Backend Auth Failed' });
-    }
-
-    // 2. Fetch User Profile
-    const userResponse = await fetch(`${config.FORTYTWO.API_BASE}/users/${login.toLowerCase()}`, {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-    });
-
-    if (userResponse.status === 404) {
-      return res.status(404).json({ error: 'User not found in 42 Intra' });
-    }
-
-    const userData = await userResponse.json();
-
-    // 3. Extract coalition data (first active coalition)
-    let coalition = { id: null, name: 'Unaffiliated', color: '#5B7C99', imageUrl: null };
+    let userData, coalition;
     
-    // To get the actual coalition, we hit /users/:id/coalitions
-    const coalResponse = await fetch(`${config.FORTYTWO.API_BASE}/users/${userData.id}/coalitions`, {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-    });
-    
-    if (coalResponse.ok) {
-      const coalitions = await coalResponse.json();
-      if (coalitions && coalitions.length > 0) {
-        const activeCoalition = coalitions[0];
-        coalition = {
-          id: activeCoalition.id,
-          name: activeCoalition.name || 'Unknown',
-          color: activeCoalition.color || '#5B7C99',
-          imageUrl: activeCoalition.image_url || null,
-        };
+    // Check if we have real credentials
+    if (config.FORTYTWO.CLIENT_ID && config.FORTYTWO.CLIENT_SECRET) {
+      // 1. Get an App Token using Client Credentials
+      const tokenResponse = await fetch(config.FORTYTWO.TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'client_credentials',
+          client_id: config.FORTYTWO.CLIENT_ID,
+          client_secret: config.FORTYTWO.CLIENT_SECRET,
+        }),
+      });
+
+      const tokenData = await tokenResponse.json();
+      if (!tokenData.access_token) {
+        console.error('[OAuth] Client Credentials failed:', tokenData);
+        return res.status(500).json({ error: 'Backend Auth Failed' });
       }
+
+      // 2. Fetch User Profile
+      const userResponse = await fetch(`${config.FORTYTWO.API_BASE}/users/${login.toLowerCase()}`, {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+
+      if (userResponse.status === 404) {
+        return res.status(404).json({ error: 'User not found in 42 Intra' });
+      }
+
+      userData = await userResponse.json();
+
+      // 3. Extract coalition data (first active coalition)
+      coalition = { id: null, name: 'Unaffiliated', color: '#5B7C99', imageUrl: null };
+      
+      const coalResponse = await fetch(`${config.FORTYTWO.API_BASE}/users/${userData.id}/coalitions`, {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+      
+      if (coalResponse.ok) {
+        const coalitions = await coalResponse.json();
+        if (coalitions && coalitions.length > 0) {
+          const activeCoalition = coalitions[0];
+          coalition = {
+            id: activeCoalition.id,
+            name: activeCoalition.name || 'Unknown',
+            color: activeCoalition.color || '#5B7C99',
+            imageUrl: activeCoalition.image_url || null,
+          };
+        }
+      }
+    } else {
+      // Mock flow for local testing without 42 API keys
+      console.log(`[OAuth] No API keys found, mocking login for ${login}`);
+      userData = {
+        id: Math.floor(Math.random() * 100000),
+        login: login,
+        displayname: login,
+        image: { link: null }
+      };
+      coalition = { id: 1, name: 'Mock Coalition', color: '#38bdf8', imageUrl: null };
     }
 
     // 4. Upsert player in database

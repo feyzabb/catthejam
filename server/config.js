@@ -21,23 +21,16 @@ module.exports = {
   // Database
   DB_PATH: process.env.DB_PATH || './server/database/deep_sea_pulse.sqlite',
 
-  // Game constants
+  // Game constants (Catan-style)
   GAME: {
-    PULSE_DURATION: 20,        // seconds per planning phase
+    TURN_DURATION: 60,         // seconds per turn
     MAX_PLAYERS: 4,            // players per room
-    MAX_PULSES: 30,            // game ends after 30 pulses (10 min)
-    ISLAND_CONTROL_WIN: 0.6,   // 60% island control = instant win
+    VP_WIN: 10,                // victory points to win
     POINTS: {
       FIRST:  +50,
       SECOND: +20,
       THIRD:  -10,
       FOURTH: -20,
     },
-    NAVY_MOVE_RANGE: 1,        // hexes per pulse
-    NAVY_DESTROY_MERCHANT: 2,  // navies needed to destroy merchant ship
-    NAVY_DESTROY_VILLAGE: 5,   // navies needed to destroy village
-    NAVY_DESTROY_CITY: 8,      // navies needed to destroy city
-    VILLAGE_PRODUCTION: 1,     // resources per pulse
-    CITY_PRODUCTION: 3,        // resources per pulse
   },
 };

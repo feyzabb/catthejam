@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Deep Sea Pulse: Coalition Wars — A 2D Multiplayer Hex Strategy Game for 42 Network">
-  <title>Deep Sea Pulse: Coalition Wars</title>
+  <title>Deep Sea Pulse: Catan Edition</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -25,18 +25,26 @@
         <div class="login-logo">
           <div class="logo-icon">🌊</div>
           <h1>Deep Sea Pulse</h1>
-          <p class="login-subtitle">Coalition Wars</p>
+          <p class="login-subtitle">Catan Edition</p>
         </div>
         <p class="login-desc">4-Player Hex Strategy for the 42 Network</p>
-        <div class="direct-login-form">
-          <input type="text" id="intra-login-input" placeholder="Your 42 Login..." class="input-login" autocomplete="off" spellcheck="false" />
-          <div id="login-error" class="login-error" style="display: none;"></div>
-          <button class="btn-42-login" id="btn-login" style="justify-content: center; width: 100%;">
+        
+        <div class="oauth-login" style="margin-bottom: 20px;">
+          <a href="/auth/42/login" class="btn-42-login" style="justify-content: center; width: 100%; background: linear-gradient(135deg, #a78bfa, #8b5cf6);">
             <svg class="icon-42" viewBox="0 0 137.52 96.5" width="28" height="20">
               <polygon points="76.96 0 76.96 30.87 107.8 30.87 107.8 61.73 76.96 61.73 45.12 61.73 45.12 96.5 14.28 96.5 14.28 61.73 0 61.73 0 30.87 45.12 30.87 45.12 0 76.96 0" fill="currentColor"/>
               <polygon points="137.52 0 137.52 30.87 107.8 30.87 107.8 0 137.52 0" fill="currentColor"/>
               <polygon points="137.52 61.73 137.52 96.5 107.8 96.5 107.8 61.73 137.52 61.73" fill="currentColor"/>
             </svg>
+            Sign in with 42 Intra
+          </a>
+        </div>
+
+        <div class="direct-login-form">
+          <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px;">Or test with any Intra login (Uses 42 API):</p>
+          <input type="text" id="intra-login-input" placeholder="Your 42 Login..." class="input-login" autocomplete="off" spellcheck="false" />
+          <div id="login-error" class="login-error" style="display: none;"></div>
+          <button class="btn-42-login" id="btn-login" style="justify-content: center; width: 100%;">
             Enter Game
           </button>
         </div>
@@ -120,16 +128,27 @@
     <!-- Top HUD -->
     <div class="game-hud-top">
       <div class="hud-resources" id="hud-resources">
-        <div class="resource" id="res-wood"><span class="res-icon">🪵</span> <span class="res-val">0</span></div>
-        <div class="resource" id="res-stone"><span class="res-icon">🪨</span> <span class="res-val">0</span></div>
-        <div class="resource" id="res-iron"><span class="res-icon">⚙️</span> <span class="res-val">0</span></div>
-        <div class="resource" id="res-gold"><span class="res-icon">🪙</span> <span class="res-val">0</span></div>
+        <div class="resource" id="res-wood"><span class="res-icon"></span> <span class="res-val">0</span></div>
+        <div class="resource" id="res-stone"><span class="res-icon"></span> <span class="res-val">0</span></div>
+        <div class="resource" id="res-iron"><span class="res-icon"></span> <span class="res-val">0</span></div>
+        <div class="resource" id="res-gold"><span class="res-icon"></span> <span class="res-val">0</span></div>
+        <div class="resource" id="res-food"><span class="res-icon"></span> <span class="res-val">0</span></div>
       </div>
-      <div class="hud-pulse">
-        <div class="pulse-label">PULSE</div>
-        <div class="pulse-number" id="pulse-number">1</div>
-        <div class="pulse-timer" id="pulse-timer">20</div>
+      
+      <!-- Catan Status Info (Replaces Pulse Timer) -->
+      <div class="hud-status" id="hud-status">
+        <div class="status-phase" id="status-phase">WAITING...</div>
+        <div class="status-turn" id="status-turn"></div>
       </div>
+      
+      <!-- Dice Display -->
+      <div class="hud-dice hidden" id="hud-dice">
+        <div class="dice-box">
+          <div class="die" id="die1">1</div>
+          <div class="die" id="die2">1</div>
+        </div>
+      </div>
+
       <div class="hud-players" id="hud-players"></div>
     </div>
 
@@ -137,28 +156,28 @@
     <canvas id="game-canvas"></canvas>
 
     <!-- Bottom Action Bar -->
-    <div class="game-hud-bottom">
+    <div class="game-hud-bottom" id="hud-actions" style="display: none;">
       <div class="action-bar" id="action-bar">
-        <button class="action-btn" id="btn-build-navy" title="Build Navy (5🪵 + 3⚙️)">
-          <span class="action-icon">⛵</span>
-          <span class="action-label">Build Navy</span>
+        <button class="action-btn" id="btn-roll-dice" style="display: none;">
+          <span class="action-icon">🎲</span>
+          <span class="action-label">Roll Dice</span>
         </button>
-        <button class="action-btn" id="btn-place-merchant" title="Place Merchant (2🪵)">
-          <span class="action-icon">🚢</span>
-          <span class="action-label">Merchant</span>
+        <button class="action-btn" id="btn-build-road" title="Build Dock/Road (1🪵 + 1🪨)">
+          <span class="action-icon"></span>
+          <span class="action-label">Dock</span>
         </button>
-        <button class="action-btn" id="btn-build-village" title="Build Village (5🪵 + 3🪨)">
-          <span class="action-icon">🏘️</span>
+        <button class="action-btn" id="btn-build-village" title="Build Village (1🪵 + 1🪨 + 1⚙️ + 1🥖)">
+          <span class="action-icon"></span>
           <span class="action-label">Village</span>
         </button>
-        <button class="action-btn" id="btn-upgrade-city" title="Upgrade City (10🪨 + 5⚙️)">
-          <span class="action-icon">🏰</span>
+        <button class="action-btn" id="btn-upgrade-city" title="Upgrade City (3⚙️ + 2🪙)">
+          <span class="action-icon"></span>
           <span class="action-label">City</span>
         </button>
-      </div>
-      <div class="command-queue" id="command-queue">
-        <span class="queue-label">Commands: </span>
-        <span class="queue-count" id="queue-count">0</span>
+        <button class="action-btn end-turn" id="btn-end-turn" style="margin-left: 20px;">
+          <span class="action-icon">⏩</span>
+          <span class="action-label">End Turn</span>
+        </button>
       </div>
     </div>
 

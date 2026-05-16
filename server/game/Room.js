@@ -1,5 +1,5 @@
 /**
- * Room.js — Room class managing the lifecycle of a game session.
+ * Room.js — Room class managing the lifecycle of a Catan-style game session.
  * States: 'lobby' → 'playing' → 'ended'
  */
 const { v4: uuidv4 } = require('uuid');
@@ -73,16 +73,22 @@ class Room {
       gameState: this.engine.getFullState(this.getPlayers()),
     });
     this.engine.start();
-    console.log(`[Room ${this.id}] Game started!`);
+    console.log(`[Room ${this.id}] Catan game started!`);
   }
 
+  /**
+   * Handle a single command from a player (Catan: one action at a time).
+   */
+  handleCommand(playerId, command) {
+    if (this.state !== 'playing' || !this.engine) return { success: false, error: 'No game' };
+    return this.engine.handleCommand(playerId, command);
+  }
+
+  // Keep backward compat for batch commands
   submitCommands(playerId, commands) {
-    if (this.state !== 'playing' || !this.engine) return false;
-    if (this.engine.phase !== 'planning') return false;
-    const player = this.players.get(playerId);
-    if (!player) return false;
-    player.addCommands(commands);
-    return true;
+    if (!Array.isArray(commands) || commands.length === 0) return false;
+    const result = this.handleCommand(playerId, commands[0]);
+    return result.success;
   }
 
   getPlayers() {
@@ -98,7 +104,7 @@ class Room {
         pointsChange: p.pointsChange,
         finalResources: p.resources,
       }));
-      leaderboard.recordMatch(this.id, this.engine?.pulseNumber || 0, results);
+      leaderboard.recordMatch(this.id, this.engine?.turnNumber || 0, results);
     } catch (err) {
       console.error(`[Room ${this.id}] Failed to record match:`, err);
     }

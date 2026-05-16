@@ -39,6 +39,9 @@ app.use(express.json());
 // Serve static client files
 app.use(express.static(path.join(__dirname, '..', 'client')));
 
+// Serve game asset images
+app.use('/deep_sea_pulse_separate_png_only', express.static(path.join(__dirname, '..', 'deep_sea_pulse_separate_png_only')));
+
 // Auth routes
 app.use('/auth/42', oauthRouter);
 

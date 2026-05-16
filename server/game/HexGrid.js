@@ -1,18 +1,22 @@
 /**
- * HexGrid.js — Hex coordinate system using axial coordinates (q, r).
+ * HexGrid.js — Catan-style hex board with vertex/edge system.
  * 
- * Flat-top hex grid. Each hex stores terrain type, owner, structures, and units.
+ * 19 hex tiles in the classic 3-4-5-4-3 Catan layout.
+ * Flat-top hexagons with pointy-top rendering.
+ * 
+ * Resources: wood(4), stone(4), iron(3), gold(3), food(4), desert(1) = 19
+ * Numbers: standard Catan distribution (no 7 on tiles)
  */
 
 class HexGrid {
-  /**
-   * @param {number} radius — Grid radius (number of rings from center)
-   */
-  constructor(radius = 7) {
-    this.radius = radius;
-    this.hexes = new Map(); // key: "q,r" → hex data
-    this.islands = [];       // list of resource island hexes
-    this.generateMap();
+  constructor() {
+    this.hexes = new Map();      // key: "q,r" → hex data
+    this.vertices = new Map();   // key: "vX,Y" → vertex data  
+    this.edges = new Map();      // key: "eX1,Y1_X2,Y2" → edge data
+    this.robberHex = null;       // {q, r} of the robber/pirate position
+    this.HEX_SIZE = 50;         // pixel size for vertex calculations
+    this.generateCatanBoard();
+    this.computeVerticesAndEdges();
   }
 
   static key(q, r) {
@@ -24,108 +28,159 @@ class HexGrid {
     return { q, r };
   }
 
-  // Pointy-topped coordinate conversion
-  static hexToPixel(q, r, size = 50) {
-    const x = size * Math.sqrt(3) * (q + r / 2);
-    const y = size * (3 / 2) * r;
-    return { x, y };
+  /**
+   * Generate the standard Catan 19-hex board.
+   * Uses axial coordinates with radius 2.
+   */
+  generateCatanBoard() {
+    // Standard Catan resource distribution (19 tiles)
+    const resources = [
+      'wood', 'wood', 'wood', 'wood',
+      'stone', 'stone', 'stone',
+      'iron', 'iron', 'iron',
+      'gold', 'gold', 'gold',
+      'food', 'food', 'food', 'food',
+      'desert'
+    ];
+
+    // Standard Catan number tokens (18 numbers for 18 resource hexes)
+    // Placed in specific order around the board spiral
+    const numberTokens = [5, 2, 6, 3, 8, 10, 9, 12, 11, 4, 8, 10, 9, 4, 5, 6, 3, 11];
+
+    // Shuffle resources
+    this._shuffle(resources);
+
+    // Generate all hexes within radius 2
+    const radius = 2;
+    const hexCoords = [];
+    for (let q = -radius; q <= radius; q++) {
+      for (let r = -radius; r <= radius; r++) {
+        const s = -q - r;
+        if (Math.abs(s) > radius) continue;
+        hexCoords.push({ q, r });
+      }
+    }
+
+    let resourceIndex = 0;
+    let numberIndex = 0;
+
+    for (const coord of hexCoords) {
+      const resType = resources[resourceIndex++];
+      const isDesert = resType === 'desert';
+
+      const hex = {
+        q: coord.q,
+        r: coord.r,
+        terrain: isDesert ? 'desert' : 'island',
+        resourceType: isDesert ? null : resType,
+        diceNumber: isDesert ? 0 : numberTokens[numberIndex++],
+        hasRobber: isDesert, // robber starts on desert
+      };
+
+      if (isDesert) {
+        this.robberHex = { q: coord.q, r: coord.r };
+      }
+
+      this.hexes.set(HexGrid.key(coord.q, coord.r), hex);
+    }
   }
 
-  static pixelToHex(px, py, size = 50) {
-    const q = (Math.sqrt(3) / 3 * px - 1 / 3 * py) / size;
-    const r = ((2 / 3) * py) / size;
-    return HexGrid.axialRound(q, r);
+  /**
+   * Compute all unique vertices and edges from the hex grid.
+   * Vertices are intersection points where 2-3 hexes meet.
+   * Edges connect adjacent vertices along hex borders.
+   */
+  computeVerticesAndEdges() {
+    const vertexMap = new Map(); // rounded id → vertex data
+    const edgeMap = new Map();
+
+    for (const [key, hex] of this.hexes) {
+      const verts = this._getHexVertices(hex.q, hex.r);
+
+      // Register each vertex
+      for (const v of verts) {
+        if (!vertexMap.has(v.id)) {
+          vertexMap.set(v.id, {
+            id: v.id,
+            x: v.x,
+            y: v.y,
+            adjacentHexes: [],
+            adjacentVertices: [],
+            adjacentEdges: [],
+            building: null,    // null | { type: 'village'|'city', playerId }
+          });
+        }
+        const vData = vertexMap.get(v.id);
+        if (!vData.adjacentHexes.find(h => h.q === hex.q && h.r === hex.r)) {
+          vData.adjacentHexes.push({ q: hex.q, r: hex.r });
+        }
+      }
+
+      // Register edges (pairs of adjacent vertices)
+      for (let i = 0; i < 6; i++) {
+        const v1 = verts[i];
+        const v2 = verts[(i + 1) % 6];
+        const edgeId = this._makeEdgeId(v1.id, v2.id);
+
+        if (!edgeMap.has(edgeId)) {
+          edgeMap.set(edgeId, {
+            id: edgeId,
+            v1Id: v1.id,
+            v2Id: v2.id,
+            v1: { x: v1.x, y: v1.y },
+            v2: { x: v2.x, y: v2.y },
+            road: null,        // null | { playerId }
+          });
+        }
+      }
+    }
+
+    // Build vertex adjacency lists
+    for (const [edgeId, edge] of edgeMap) {
+      const v1 = vertexMap.get(edge.v1Id);
+      const v2 = vertexMap.get(edge.v2Id);
+      if (v1 && v2) {
+        if (!v1.adjacentVertices.includes(edge.v2Id)) v1.adjacentVertices.push(edge.v2Id);
+        if (!v2.adjacentVertices.includes(edge.v1Id)) v2.adjacentVertices.push(edge.v1Id);
+        if (!v1.adjacentEdges.includes(edgeId)) v1.adjacentEdges.push(edgeId);
+        if (!v2.adjacentEdges.includes(edgeId)) v2.adjacentEdges.push(edgeId);
+      }
+    }
+
+    this.vertices = vertexMap;
+    this.edges = edgeMap;
   }
 
-  static getHexVertices(q, r, size = 50) {
-    const { x, y } = HexGrid.hexToPixel(q, r, size);
+  /**
+   * Get the 6 vertices of a pointy-top hex at axial (q,r).
+   */
+  _getHexVertices(q, r) {
+    const { x: cx, y: cy } = this.hexToPixel(q, r);
     const vertices = [];
     for (let i = 0; i < 6; i++) {
+      // Pointy-top: first vertex at 30 degrees
       const angle = (Math.PI / 180) * (60 * i - 30);
-      const vx = x + size * Math.cos(angle);
-      const vy = y + size * Math.sin(angle);
-      const id = `${Math.round(vx)},${Math.round(vy)}`;
-      vertices.push({ x: vx, y: vy, id });
+      const vx = cx + this.HEX_SIZE * Math.cos(angle);
+      const vy = cy + this.HEX_SIZE * Math.sin(angle);
+      // Round to avoid floating point issues
+      const rx = Math.round(vx * 10) / 10;
+      const ry = Math.round(vy * 10) / 10;
+      vertices.push({ x: rx, y: ry, id: `v${rx},${ry}` });
     }
     return vertices;
   }
 
-  static getHexEdges(q, r, size = 50) {
-    const vertices = HexGrid.getHexVertices(q, r, size);
-    const edges = [];
-    for (let i = 0; i < 6; i++) {
-      const v1 = vertices[i];
-      const v2 = vertices[(i + 1) % 6];
-      const arr = [v1.id, v2.id].sort();
-      edges.push({ id: `e_${arr[0]}_${arr[1]}`, v1, v2 });
-    }
-    return edges;
+  _makeEdgeId(v1Id, v2Id) {
+    return [v1Id, v2Id].sort().join('_');
   }
 
-  generateMap() {
-    // 19 Hexes total (radius = 2)
-    const resourceDistribution = [
-      'wood', 'wood', 'wood', 'wood',
-      'stone', 'stone', 'stone', 'stone',
-      'iron', 'iron', 'iron', 'iron',
-      'gold', 'gold', 'gold', 'gold',
-      'sea', 'sea', 'sea'
-    ];
-    // Numbers: 2 to 12 (18 tokens for resources, seas get 0)
-    const numbers = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12];
-    
-    const shuffledResources = resourceDistribution.sort(() => Math.random() - 0.5);
-    const shuffledNumbers = numbers.sort(() => Math.random() - 0.5);
-
-    let hexIndex = 0;
-    let numberIndex = 0;
-
-    for (let q = -this.radius; q <= this.radius; q++) {
-      for (let r = -this.radius; r <= this.radius; r++) {
-        const s = -q - r;
-        if (Math.abs(s) > this.radius) continue;
-
-        const resType = shuffledResources[hexIndex++];
-        let num = 0;
-        if (resType !== 'sea') {
-          num = shuffledNumbers[numberIndex++];
-        }
-
-        const hex = {
-          q,
-          r,
-          terrain: resType === 'sea' ? 'sea' : 'island',
-          resourceType: resType === 'sea' ? null : resType,
-          diceNumber: num,
-          owner: null,
-          structure: null,
-          units: [],
-        };
-
-        this.hexes.set(HexGrid.key(q, r), hex);
-      }
-    }
-    
-    // We will store structures in vertices and roads in edges in the GameEngine instead of HexGrid to decouple.
-  }
-
-  // Island/Capital placement logic is removed since Catan mode distributes resources directly in generateMap
-
-  getCapitalPositions() {
-    const r = this.radius;
-    return [
-      { q: -r, r: 0 },
-      { q: r, r: 0 },
-      { q: 0, r: -r },
-      { q: 0, r: r },
-    ];
-  }
-
-  assignCapital(playerIndex, playerId) {
-    const positions = this.getCapitalPositions();
-    const pos = positions[playerIndex];
-    // We don't change hex owner, capitals are on vertices now in Catan
-    return pos;
+  /**
+   * Convert axial hex coordinates to pixel position (pointy-top).
+   */
+  hexToPixel(q, r) {
+    const x = this.HEX_SIZE * Math.sqrt(3) * (q + r / 2);
+    const y = this.HEX_SIZE * (3 / 2) * r;
+    return { x, y };
   }
 
   /**
@@ -136,127 +191,265 @@ class HexGrid {
   }
 
   /**
+   * Get all hexes adjacent to a vertex.
+   */
+  getHexesForVertex(vertexId) {
+    const vertex = this.vertices.get(vertexId);
+    if (!vertex) return [];
+    return vertex.adjacentHexes.map(h => this.getHex(h.q, h.r)).filter(Boolean);
+  }
+
+  /**
+   * Place a building (village or city) at a vertex.
+   * Returns true if successful.
+   */
+  placeBuilding(vertexId, playerId, type) {
+    const vertex = this.vertices.get(vertexId);
+    if (!vertex) return false;
+    if (vertex.building) return false; // already occupied
+
+    // Distance rule: no adjacent vertex can have a building
+    for (const adjId of vertex.adjacentVertices) {
+      const adj = this.vertices.get(adjId);
+      if (adj && adj.building) return false;
+    }
+
+    vertex.building = { type, playerId };
+    return true;
+  }
+
+  /**
+   * Upgrade a village to a city at a vertex.
+   */
+  upgradeToCity(vertexId, playerId) {
+    const vertex = this.vertices.get(vertexId);
+    if (!vertex || !vertex.building) return false;
+    if (vertex.building.playerId !== playerId) return false;
+    if (vertex.building.type !== 'village') return false;
+
+    vertex.building.type = 'city';
+    return true;
+  }
+
+  /**
+   * Place a road on an edge.
+   */
+  placeRoad(edgeId, playerId) {
+    const edge = this.edges.get(edgeId);
+    if (!edge) return false;
+    if (edge.road) return false; // already occupied
+
+    // Must be adjacent to player's existing road or building
+    const v1 = this.vertices.get(edge.v1Id);
+    const v2 = this.vertices.get(edge.v2Id);
+
+    const hasConnection = (v1 && v1.building && v1.building.playerId === playerId) ||
+                          (v2 && v2.building && v2.building.playerId === playerId) ||
+                          this._hasAdjacentRoad(edge.v1Id, playerId) ||
+                          this._hasAdjacentRoad(edge.v2Id, playerId);
+
+    if (!hasConnection) return false;
+
+    edge.road = { playerId };
+    return true;
+  }
+
+  /**
+   * Place a road without adjacency checks (for setup phase).
+   */
+  placeRoadFree(edgeId, playerId) {
+    const edge = this.edges.get(edgeId);
+    if (!edge) return false;
+    if (edge.road) return false;
+    edge.road = { playerId };
+    return true;
+  }
+
+  /**
+   * Place a building without distance rule checks (for setup phase).
+   */
+  placeBuildingFree(vertexId, playerId, type) {
+    const vertex = this.vertices.get(vertexId);
+    if (!vertex) return false;
+    if (vertex.building) return false;
+    vertex.building = { type, playerId };
+    return true;
+  }
+
+  /**
+   * Check if a vertex has an adjacent road owned by a player.
+   */
+  _hasAdjacentRoad(vertexId, playerId) {
+    const vertex = this.vertices.get(vertexId);
+    if (!vertex) return false;
+    for (const edgeId of vertex.adjacentEdges) {
+      const edge = this.edges.get(edgeId);
+      if (edge && edge.road && edge.road.playerId === playerId) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Distribute resources based on a dice roll.
+   * Returns array of { playerId, resourceType, amount } objects.
+   */
+  distributeResources(diceTotal) {
+    const distributions = [];
+
+    for (const [key, hex] of this.hexes) {
+      if (hex.diceNumber !== diceTotal) continue;
+      if (hex.hasRobber) continue; // robber blocks production
+      if (!hex.resourceType) continue;
+
+      // Find all vertices of this hex that have buildings
+      const verts = this._getHexVertices(hex.q, hex.r);
+      for (const v of verts) {
+        const vertex = this.vertices.get(v.id);
+        if (!vertex || !vertex.building) continue;
+
+        const amount = vertex.building.type === 'city' ? 2 : 1;
+        distributions.push({
+          playerId: vertex.building.playerId,
+          resourceType: hex.resourceType,
+          amount,
+          hex: { q: hex.q, r: hex.r },
+        });
+      }
+    }
+
+    return distributions;
+  }
+
+  /**
+   * Move the robber/pirate to a new hex.
+   */
+  moveRobber(q, r) {
+    // Remove from old position
+    if (this.robberHex) {
+      const oldHex = this.getHex(this.robberHex.q, this.robberHex.r);
+      if (oldHex) oldHex.hasRobber = false;
+    }
+
+    const newHex = this.getHex(q, r);
+    if (newHex) {
+      newHex.hasRobber = true;
+      this.robberHex = { q, r };
+    }
+  }
+
+  /**
    * Get the 6 neighbors of a hex.
    */
   getNeighbors(q, r) {
     const directions = [
-      { q: 1, r: 0 },  { q: -1, r: 0 },
-      { q: 0, r: 1 },  { q: 0, r: -1 },
+      { q: 1, r: 0 }, { q: -1, r: 0 },
+      { q: 0, r: 1 }, { q: 0, r: -1 },
       { q: 1, r: -1 }, { q: -1, r: 1 },
     ];
-
     return directions
       .map(d => this.getHex(q + d.q, r + d.r))
       .filter(h => h !== null);
   }
 
   /**
-   * Calculate hex distance between two hexes (axial coordinates).
-   */
-  _hexDistance(q1, r1, q2, r2) {
-    return (Math.abs(q1 - q2) + Math.abs(r1 - r2) + Math.abs((q1 + r1) - (q2 + r2))) / 2;
-  }
-
-  /**
-   * Public hex distance.
+   * Calculate hex distance between two hexes.
    */
   hexDistance(a, b) {
-    return this._hexDistance(a.q, a.r, b.q, b.r);
+    return (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs((a.q + a.r) - (b.q + b.r))) / 2;
   }
 
   /**
-   * Check if a hex is adjacent to another.
+   * Get all vertices that belong to an edge.
    */
-  isAdjacent(a, b) {
-    return this._hexDistance(a.q, a.r, b.q, b.r) === 1;
+  getEdgeVertices(edgeId) {
+    const edge = this.edges.get(edgeId);
+    if (!edge) return [];
+    return [this.vertices.get(edge.v1Id), this.vertices.get(edge.v2Id)].filter(Boolean);
   }
 
   /**
-   * BFS: Check if a hex is connected to a player's capital via merchant ship chain.
+   * Check if a vertex is on the coast (adjacent to fewer than 3 hexes).
    */
-  isConnectedToCapital(playerId, targetHex, merchantShips) {
-    const capitalHex = Array.from(this.hexes.values()).find(
-      h => h.owner === playerId && h.structure === 'capital'
-    );
-    if (!capitalHex) return false;
+  isCoastalVertex(vertexId) {
+    const vertex = this.vertices.get(vertexId);
+    if (!vertex) return false;
+    return vertex.adjacentHexes.length < 3;
+  }
 
-    // Build adjacency from merchant ships owned by this player
-    const playerMerchants = merchantShips.filter(m => m.playerId === playerId);
-    const connections = new Map(); // hex key → Set of connected hex keys
-
-    for (const merchant of playerMerchants) {
-      const fromKey = HexGrid.key(merchant.fromHex.q, merchant.fromHex.r);
-      const toKey = HexGrid.key(merchant.toHex.q, merchant.toHex.r);
-
-      if (!connections.has(fromKey)) connections.set(fromKey, new Set());
-      if (!connections.has(toKey)) connections.set(toKey, new Set());
-      connections.get(fromKey).add(toKey);
-      connections.get(toKey).add(fromKey);
-    }
-
-    // BFS from capital to target
-    const capitalKey = HexGrid.key(capitalHex.q, capitalHex.r);
-    const targetKey = HexGrid.key(targetHex.q, targetHex.r);
-
-    if (capitalKey === targetKey) return true;
-
-    const visited = new Set([capitalKey]);
-    const queue = [capitalKey];
-
-    while (queue.length > 0) {
-      const current = queue.shift();
-      const neighbors = connections.get(current);
-      if (!neighbors) continue;
-
-      for (const neighbor of neighbors) {
-        if (neighbor === targetKey) return true;
-        if (!visited.has(neighbor)) {
-          visited.add(neighbor);
-          queue.push(neighbor);
-        }
+  /**
+   * Count victory points for a player.
+   */
+  getPlayerVP(playerId) {
+    let vp = 0;
+    for (const [id, vertex] of this.vertices) {
+      if (vertex.building && vertex.building.playerId === playerId) {
+        vp += vertex.building.type === 'city' ? 2 : 1;
       }
     }
-
-    return false;
+    return vp;
   }
 
-  // Pixel conversion functions moved to static methods at the top
-
   /**
-   * Round fractional hex coordinates to nearest hex.
+   * Count longest road for a player (simplified).
    */
-  static axialRound(q, r) {
-    const s = -q - r;
-    let rq = Math.round(q);
-    let rr = Math.round(r);
-    let rs = Math.round(s);
-
-    const qDiff = Math.abs(rq - q);
-    const rDiff = Math.abs(rr - r);
-    const sDiff = Math.abs(rs - s);
-
-    if (qDiff > rDiff && qDiff > sDiff) {
-      rq = -rr - rs;
-    } else if (rDiff > sDiff) {
-      rr = -rq - rs;
+  getPlayerRoadLength(playerId) {
+    let count = 0;
+    for (const [id, edge] of this.edges) {
+      if (edge.road && edge.road.playerId === playerId) count++;
     }
-
-    return { q: rq, r: rr };
+    return count;
   }
 
   /**
-   * Serialize the full grid for client broadcast.
+   * Fisher-Yates shuffle.
+   */
+  _shuffle(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+  }
+
+  /**
+   * Serialize for client broadcast.
    */
   toJSON() {
     const hexArray = [];
     for (const [key, hex] of this.hexes) {
       hexArray.push({ ...hex });
     }
+
+    const vertexArray = [];
+    for (const [id, v] of this.vertices) {
+      vertexArray.push({
+        id: v.id,
+        x: v.x,
+        y: v.y,
+        adjacentHexes: v.adjacentHexes,
+        adjacentVertices: v.adjacentVertices,
+        adjacentEdges: v.adjacentEdges,
+        building: v.building,
+      });
+    }
+
+    const edgeArray = [];
+    for (const [id, e] of this.edges) {
+      edgeArray.push({
+        id: e.id,
+        v1Id: e.v1Id,
+        v2Id: e.v2Id,
+        v1: e.v1,
+        v2: e.v2,
+        road: e.road,
+      });
+    }
+
     return {
-      radius: this.radius,
       hexes: hexArray,
-      islands: this.islands,
-      capitalPositions: this.getCapitalPositions(),
+      vertices: vertexArray,
+      edges: edgeArray,
+      robberHex: this.robberHex,
     };
   }
 }

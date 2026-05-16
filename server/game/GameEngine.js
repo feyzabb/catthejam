@@ -1,530 +1,440 @@
 /**
- * GameEngine.js — Core game loop: Pulse timer, command batching, and resolution.
+ * GameEngine.js — Catan-style game engine.
  * 
- * Resolution order per Pulse:
- *   1. Navy Movement
- *   2. Combat Resolution (stacking)
- *   3. Merchant Ship Placement
- *   4. Building Phase
- *   5. Resource Collection
- *   6. Victory Check
+ * Game Flow:
+ *   1. Setup Phase: Each player places 2 villages + 2 roads (reverse order for 2nd)
+ *   2. Main Game: Turn-based with dice rolling
+ *      a. Roll dice → distribute resources
+ *      b. If 7 → move robber/pirate
+ *      c. Active player can: build road, build village, upgrade city, trade, or pass
+ *   3. First to 10 VP wins
  */
 const config = require('../config');
 const HexGrid = require('./HexGrid');
 const { v4: uuidv4 } = require('uuid');
 
+// Building costs
+const COSTS = {
+  road: { wood: 1, stone: 1 },
+  village: { wood: 1, stone: 1, iron: 1, food: 1 },
+  city: { iron: 3, gold: 2 },
+};
+
 class GameEngine {
-  /**
-   * @param {Room} room — The parent room instance
-   * @param {Function} broadcastFn — Function to broadcast events to the room
-   */
   constructor(room, broadcastFn) {
     this.room = room;
     this.broadcast = broadcastFn;
 
     // Game state
-    this.grid = new HexGrid(2); // Radius 2 creates exactly 19 hexes
-    this.pulseNumber = 0;
-    this.phase = 'waiting'; // 'waiting' | 'planning' | 'resolving' | 'ended'
+    this.grid = new HexGrid();
+    this.phase = 'waiting'; // 'waiting' | 'setup' | 'roll' | 'build' | 'robber' | 'ended'
+    this.currentTurn = 0;   // player index whose turn it is
+    this.turnOrder = [];     // array of player IDs in turn order
+    this.lastDice = [0, 0]; // [die1, die2]
+    this.turnNumber = 0;
+
+    // Setup phase tracking
+    this.setupRound = 0;    // 0 = first round, 1 = second round
+    this.setupStep = 'village'; // 'village' | 'road'
+
+    // Timer
     this.timer = null;
-    this.timeRemaining = config.GAME.PULSE_DURATION;
+    this.timeRemaining = 0;
 
-    // All merchant ships in the game (across all players)
-    this.allMerchantShips = [];
-
-    // Event log for animations
-    this.pulseEvents = [];
+    // Event log
+    this.events = [];
   }
 
   /**
-   * Initialize the game: assign capitals, give starting units.
+   * Initialize the game.
    */
   initialize(players) {
-    // Assign capitals to each player
-    players.forEach((player, index) => {
-      const capitalPos = this.grid.assignCapital(index, player.id);
-      player.capitalHex = capitalPos;
-
-      // Starting navy at capital
-      const navyId = uuidv4();
-      player.navies.push({ id: navyId, hex: { ...capitalPos } });
-
-      // Place the navy on the grid
-      const hex = this.grid.getHex(capitalPos.q, capitalPos.r);
-      if (hex) {
-        hex.units.push({ playerId: player.id, type: 'navy', id: navyId });
-      }
-    });
-
-    console.log(`[GameEngine] Game initialized with ${players.length} players`);
+    this.turnOrder = players.map(p => p.id);
+    console.log(`[GameEngine] Catan game initialized with ${players.length} players`);
   }
 
   /**
-   * Start the game loop — first planning phase.
+   * Start the game — enter setup phase.
    */
   start() {
-    this.phase = 'planning';
-    this.pulseNumber = 1;
-    this._startPlanningPhase();
+    this.phase = 'setup';
+    this.setupRound = 0;
+    this.currentTurn = 0;
+    this.setupStep = 'village';
+
+    this.broadcast('game:phaseStart', {
+      phase: 'setup',
+      setupRound: this.setupRound,
+      setupStep: this.setupStep,
+      currentTurn: this.currentTurn,
+      currentPlayerId: this.turnOrder[this.currentTurn],
+    });
+
+    this._startTurnTimer();
   }
 
   /**
-   * Begin a planning phase with a countdown timer.
+   * Start a turn timer.
    */
-  _startPlanningPhase() {
-    this.timeRemaining = config.GAME.PULSE_DURATION;
-    this.phase = 'planning';
+  _startTurnTimer() {
+    if (this.timer) clearInterval(this.timer);
+    this.timeRemaining = config.GAME.TURN_DURATION || 60;
 
-    this.broadcast('game:phaseStart', {
-      phase: 'planning',
-      pulseNumber: this.pulseNumber,
-      timer: this.timeRemaining,
-    });
-
-    // Countdown timer — tick every second
     this.timer = setInterval(() => {
       this.timeRemaining--;
-
       if (this.timeRemaining <= 0) {
         clearInterval(this.timer);
-        this._executePulse();
+        this._autoPass();
       }
     }, 1000);
   }
 
   /**
-   * Execute the Pulse — resolve all batched commands.
+   * Auto-pass when timer expires.
    */
-  _executePulse() {
-    this.phase = 'resolving';
-    this.pulseEvents = [];
+  _autoPass() {
+    if (this.phase === 'setup') {
+      // Skip this player's setup turn
+      this._advanceSetup();
+    } else if (this.phase === 'roll') {
+      // Auto-roll
+      this._rollDice();
+    } else if (this.phase === 'build' || this.phase === 'robber') {
+      // End turn
+      this._endTurn();
+    }
+  }
+
+  /**
+   * Handle a player command.
+   */
+  handleCommand(playerId, command) {
+    const players = this.room.getPlayers();
+    const player = players.find(p => p.id === playerId);
+    if (!player) return { success: false, error: 'Player not found' };
+
+    // Check if it's this player's turn
+    if (this.turnOrder[this.currentTurn] !== playerId) {
+      return { success: false, error: 'Not your turn' };
+    }
+
+    switch (command.type) {
+      case 'PLACE_VILLAGE':
+        return this._handlePlaceVillage(player, command, players);
+      case 'PLACE_ROAD':
+        return this._handlePlaceRoad(player, command, players);
+      case 'UPGRADE_CITY':
+        return this._handleUpgradeCity(player, command, players);
+      case 'ROLL_DICE':
+        return this._handleRollDice(player, players);
+      case 'MOVE_ROBBER':
+        return this._handleMoveRobber(player, command, players);
+      case 'END_TURN':
+        return this._handleEndTurn(player, players);
+      default:
+        return { success: false, error: 'Unknown command' };
+    }
+  }
+
+  // ─── SETUP PHASE HANDLERS ─────────────────────────────────
+
+  _handlePlaceVillage(player, command, players) {
+    const vertexId = command.vertexId;
+    if (!vertexId) return { success: false, error: 'No vertex specified' };
+
+    if (this.phase === 'setup') {
+      if (this.setupStep !== 'village') return { success: false, error: 'Place a road first' };
+
+      // In setup, use free placement (no distance rule enforcement except via grid)
+      const success = this.grid.placeBuildingFree(vertexId, player.id, 'village');
+      if (!success) return { success: false, error: 'Cannot place village here' };
+
+      player.villages.push(vertexId);
+      this.events.push({ type: 'VILLAGE_BUILT', playerId: player.id, vertexId });
+
+      // In second setup round, give initial resources from adjacent hexes
+      if (this.setupRound === 1) {
+        const adjHexes = this.grid.getHexesForVertex(vertexId);
+        for (const hex of adjHexes) {
+          if (hex.resourceType) {
+            player.addResource(hex.resourceType, 1);
+          }
+        }
+      }
+
+      this.setupStep = 'road';
+      this._broadcastState(players);
+      return { success: true };
+
+    } else if (this.phase === 'build') {
+      // Normal game: check cost and rules
+      if (!player.canAfford(COSTS.village)) return { success: false, error: 'Cannot afford village' };
+
+      // Must be adjacent to player's road
+      const vertex = this.grid.vertices.get(vertexId);
+      if (!vertex) return { success: false, error: 'Invalid vertex' };
+
+      const hasRoad = this.grid._hasAdjacentRoad(vertexId, player.id);
+      if (!hasRoad) return { success: false, error: 'Must be connected to your road network' };
+
+      const success = this.grid.placeBuilding(vertexId, player.id, 'village');
+      if (!success) return { success: false, error: 'Cannot place village here (distance rule)' };
+
+      player.spendCost(COSTS.village);
+      player.villages.push(vertexId);
+      this.events.push({ type: 'VILLAGE_BUILT', playerId: player.id, vertexId });
+
+      this._checkVictory(player, players);
+      this._broadcastState(players);
+      return { success: true };
+    }
+
+    return { success: false, error: 'Cannot place village now' };
+  }
+
+  _handlePlaceRoad(player, command, players) {
+    const edgeId = command.edgeId;
+    if (!edgeId) return { success: false, error: 'No edge specified' };
+
+    if (this.phase === 'setup') {
+      if (this.setupStep !== 'road') return { success: false, error: 'Place a village first' };
+
+      // In setup, road must be adjacent to the just-placed village
+      const lastVillage = player.villages[player.villages.length - 1];
+      const edge = this.grid.edges.get(edgeId);
+      if (!edge) return { success: false, error: 'Invalid edge' };
+      if (edge.v1Id !== lastVillage && edge.v2Id !== lastVillage) {
+        return { success: false, error: 'Road must be adjacent to your village' };
+      }
+
+      const success = this.grid.placeRoadFree(edgeId, player.id);
+      if (!success) return { success: false, error: 'Cannot place road here' };
+
+      player.roads.push(edgeId);
+      this.events.push({ type: 'ROAD_BUILT', playerId: player.id, edgeId });
+
+      // Advance setup
+      this._advanceSetup();
+      this._broadcastState(players);
+      return { success: true };
+
+    } else if (this.phase === 'build') {
+      // Normal game: check cost
+      if (!player.canAfford(COSTS.road)) return { success: false, error: 'Cannot afford road' };
+
+      const success = this.grid.placeRoad(edgeId, player.id);
+      if (!success) return { success: false, error: 'Cannot place road here' };
+
+      player.spendCost(COSTS.road);
+      player.roads.push(edgeId);
+      this.events.push({ type: 'ROAD_BUILT', playerId: player.id, edgeId });
+
+      this._broadcastState(players);
+      return { success: true };
+    }
+
+    return { success: false, error: 'Cannot place road now' };
+  }
+
+  _handleUpgradeCity(player, command, players) {
+    if (this.phase !== 'build') return { success: false, error: 'Not in build phase' };
+
+    const vertexId = command.vertexId;
+    if (!vertexId) return { success: false, error: 'No vertex specified' };
+
+    if (!player.canAfford(COSTS.city)) return { success: false, error: 'Cannot afford city upgrade' };
+
+    const success = this.grid.upgradeToCity(vertexId, player.id);
+    if (!success) return { success: false, error: 'Cannot upgrade here' };
+
+    player.spendCost(COSTS.city);
+    player.villages = player.villages.filter(v => v !== vertexId);
+    player.cities.push(vertexId);
+    this.events.push({ type: 'CITY_UPGRADED', playerId: player.id, vertexId });
+
+    this._checkVictory(player, players);
+    this._broadcastState(players);
+    return { success: true };
+  }
+
+  // ─── DICE ROLLING ──────────────────────────────────────────
+
+  _handleRollDice(player, players) {
+    if (this.phase !== 'roll') return { success: false, error: 'Not in roll phase' };
+    this._rollDice();
+    return { success: true };
+  }
+
+  _rollDice() {
+    const players = this.room.getPlayers();
+    const die1 = Math.floor(Math.random() * 6) + 1;
+    const die2 = Math.floor(Math.random() * 6) + 1;
+    const total = die1 + die2;
+    this.lastDice = [die1, die2];
+
+    this.events.push({ type: 'DICE_ROLLED', dice: [die1, die2], total });
+
+    if (total === 7) {
+      // Robber! Players with > 7 resources must discard half (auto for now)
+      for (const p of players) {
+        const totalRes = p.getTotalResources();
+        if (totalRes > 7) {
+          const toDiscard = Math.floor(totalRes / 2);
+          let discarded = 0;
+          const types = ['wood', 'stone', 'iron', 'gold', 'food'];
+          while (discarded < toDiscard) {
+            for (const type of types) {
+              if (p.resources[type] > 0 && discarded < toDiscard) {
+                p.resources[type]--;
+                discarded++;
+              }
+            }
+          }
+        }
+      }
+
+      // Move to robber phase
+      this.phase = 'robber';
+      this._broadcastState(players);
+      this.broadcast('game:dice', { dice: [die1, die2], total, phase: 'robber' });
+      return;
+    }
+
+    // Distribute resources
+    const distributions = this.grid.distributeResources(total);
+    for (const dist of distributions) {
+      const p = players.find(pl => pl.id === dist.playerId);
+      if (p) {
+        p.addResource(dist.resourceType, dist.amount);
+        this.events.push({
+          type: 'RESOURCE_PRODUCED',
+          playerId: dist.playerId,
+          resourceType: dist.resourceType,
+          amount: dist.amount,
+        });
+      }
+    }
+
+    this.phase = 'build';
+    this._broadcastState(players);
+    this.broadcast('game:dice', { dice: [die1, die2], total, distributions, phase: 'build' });
+  }
+
+  // ─── ROBBER ────────────────────────────────────────────────
+
+  _handleMoveRobber(player, command, players) {
+    if (this.phase !== 'robber') return { success: false, error: 'Not in robber phase' };
+
+    const { q, r } = command;
+    const hex = this.grid.getHex(q, r);
+    if (!hex) return { success: false, error: 'Invalid hex' };
+
+    // Can't place robber back on same hex
+    if (this.grid.robberHex && this.grid.robberHex.q === q && this.grid.robberHex.r === r) {
+      return { success: false, error: 'Must move robber to a different hex' };
+    }
+
+    this.grid.moveRobber(q, r);
+    this.events.push({ type: 'ROBBER_MOVED', playerId: player.id, hex: { q, r } });
+
+    this.phase = 'build';
+    this._broadcastState(players);
+    return { success: true };
+  }
+
+  // ─── TURN MANAGEMENT ──────────────────────────────────────
+
+  _handleEndTurn(player, players) {
+    if (this.phase !== 'build') return { success: false, error: 'Cannot end turn now' };
+    this._endTurn();
+    return { success: true };
+  }
+
+  _endTurn() {
     const players = this.room.getPlayers();
 
-    console.log(`[GameEngine] Pulse #${this.pulseNumber} — Resolving commands`);
+    // Advance to next player
+    this.currentTurn = (this.currentTurn + 1) % this.turnOrder.length;
+    this.turnNumber++;
+    this.phase = 'roll';
 
-    // Gather all commands from all players
-    const allCommands = [];
-    for (const player of players) {
-      allCommands.push(...player.pendingCommands);
-    }
-
-    // === RESOLUTION ORDER ===
-
-    // 1. Navy Movement
-    this._resolveNavyMovement(allCommands, players);
-
-    // 2. Combat Resolution (stacking)
-    this._resolveCombat(players);
-
-    // 3. Merchant Ship Placement
-    this._resolveMerchantPlacement(allCommands, players);
-
-    // 4. Building Phase
-    this._resolveBuilding(allCommands, players);
-
-    // 5. Resource Collection
-    this._resolveResourceCollection(players);
-
-    // 6. Clear commands
-    for (const player of players) {
-      player.clearCommands();
-    }
-
-    // 7. Victory Check
-    const victor = this._checkVictory(players);
-
-    // Broadcast pulse result
-    this.broadcast('game:pulseResult', {
-      pulseNumber: this.pulseNumber,
-      grid: this.grid.toJSON(),
-      players: players.map(p => p.toPublicJSON()),
-      events: this.pulseEvents,
-      victor: victor ? victor.toPublicJSON() : null,
+    this.broadcast('game:turnChanged', {
+      currentTurn: this.currentTurn,
+      currentPlayerId: this.turnOrder[this.currentTurn],
+      turnNumber: this.turnNumber,
     });
 
-    if (victor) {
-      this._endGame(players);
-      return;
-    }
-
-    // Check max pulses
-    if (this.pulseNumber >= config.GAME.MAX_PULSES) {
-      this._endGame(players);
-      return;
-    }
-
-    // Next pulse
-    this.pulseNumber++;
-    this._startPlanningPhase();
+    this._broadcastState(players);
+    this._startTurnTimer();
   }
 
-  /**
-   * Step 1: Resolve Navy movement commands.
-   */
-  _resolveNavyMovement(commands, players) {
-    const moveCommands = commands.filter(c => c.type === 'MOVE_NAVY');
+  // ─── SETUP PHASE MANAGEMENT ───────────────────────────────
 
-    for (const cmd of moveCommands) {
-      const player = players.find(p => p.id === cmd.playerId);
-      if (!player) continue;
+  _advanceSetup() {
+    const players = this.room.getPlayers();
+    const numPlayers = this.turnOrder.length;
 
-      const navy = player.navies.find(n => n.id === cmd.navyId);
-      if (!navy) continue;
-
-      const target = cmd.targetHex;
-      if (!target) continue;
-
-      // Validate: target is within 1 hex range
-      const dist = this.grid.hexDistance(navy.hex, target);
-      if (dist > config.GAME.NAVY_MOVE_RANGE) continue;
-
-      // Validate: target hex exists
-      const targetHex = this.grid.getHex(target.q, target.r);
-      if (!targetHex) continue;
-
-      // Remove from old hex
-      const oldHex = this.grid.getHex(navy.hex.q, navy.hex.r);
-      if (oldHex) {
-        oldHex.units = oldHex.units.filter(u => u.id !== navy.id);
+    if (this.setupRound === 0) {
+      // First round: go forward
+      this.currentTurn++;
+      if (this.currentTurn >= numPlayers) {
+        // Start second round (reverse order)
+        this.setupRound = 1;
+        this.currentTurn = numPlayers - 1;
       }
-
-      // Move to new hex
-      navy.hex = { q: target.q, r: target.r };
-      targetHex.units.push({ playerId: player.id, type: 'navy', id: navy.id });
-
-      this.pulseEvents.push({
-        type: 'NAVY_MOVED',
-        playerId: player.id,
-        navyId: navy.id,
-        from: { q: oldHex?.q, r: oldHex?.r },
-        to: target,
-      });
-    }
-  }
-
-  /**
-   * Step 2: Resolve combat via stacking — count navies per hex per player.
-   */
-  _resolveCombat(players) {
-    // Check each hex for multi-player navy presence
-    for (const [key, hex] of this.grid.hexes) {
-      const naviesOnHex = hex.units.filter(u => u.type === 'navy');
-      if (naviesOnHex.length === 0) continue;
-
-      // Group navies by player
-      const byPlayer = {};
-      for (const navy of naviesOnHex) {
-        if (!byPlayer[navy.playerId]) byPlayer[navy.playerId] = [];
-        byPlayer[navy.playerId].push(navy);
-      }
-
-      const playerIds = Object.keys(byPlayer).map(Number);
-      if (playerIds.length <= 1) continue; // No conflict
-
-      // Find the dominant player (most navies)
-      let maxNavies = 0;
-      let dominantPlayer = null;
-      for (const [pid, navies] of Object.entries(byPlayer)) {
-        if (navies.length > maxNavies) {
-          maxNavies = navies.length;
-          dominantPlayer = Number(pid);
-        }
-      }
-
-      // Destroy enemy merchant ships on this hex
-      const merchantsOnHex = this.allMerchantShips.filter(
-        m => (HexGrid.key(m.fromHex.q, m.fromHex.r) === key ||
-              HexGrid.key(m.toHex.q, m.toHex.r) === key) &&
-             m.playerId !== dominantPlayer
-      );
-
-      for (const merchant of merchantsOnHex) {
-        if (maxNavies >= config.GAME.NAVY_DESTROY_MERCHANT) {
-          this._destroyMerchant(merchant, players);
-          this.pulseEvents.push({
-            type: 'MERCHANT_DESTROYED',
-            playerId: merchant.playerId,
-            hex: { q: hex.q, r: hex.r },
-            destroyedBy: dominantPlayer,
-          });
-        }
-      }
-
-      // Destroy enemy structures
-      if (hex.owner && hex.owner !== dominantPlayer) {
-        if (hex.structure === 'village' && maxNavies >= config.GAME.NAVY_DESTROY_VILLAGE) {
-          // Loot resources
-          this._lootStructure(hex, dominantPlayer, players);
-          hex.structure = null;
-          hex.owner = null;
-          this.pulseEvents.push({
-            type: 'VILLAGE_DESTROYED',
-            hex: { q: hex.q, r: hex.r },
-            destroyedBy: dominantPlayer,
-          });
-        } else if (hex.structure === 'city' && maxNavies >= config.GAME.NAVY_DESTROY_CITY) {
-          this._lootStructure(hex, dominantPlayer, players);
-          hex.structure = null;
-          hex.owner = null;
-          this.pulseEvents.push({
-            type: 'CITY_DESTROYED',
-            hex: { q: hex.q, r: hex.r },
-            destroyedBy: dominantPlayer,
-          });
-        }
+    } else {
+      // Second round: go backward
+      this.currentTurn--;
+      if (this.currentTurn < 0) {
+        // Setup complete! Start main game
+        this._startMainGame(players);
+        return;
       }
     }
-  }
 
-  /**
-   * Destroy a merchant ship.
-   */
-  _destroyMerchant(merchant, players) {
-    // Remove from global list
-    this.allMerchantShips = this.allMerchantShips.filter(m => m.id !== merchant.id);
+    this.setupStep = 'village';
 
-    // Remove from player
-    const owner = players.find(p => p.id === merchant.playerId);
-    if (owner) {
-      owner.merchantShips = owner.merchantShips.filter(m => m.id !== merchant.id);
-    }
-
-    // Remove from hex units
-    const fromHex = this.grid.getHex(merchant.fromHex.q, merchant.fromHex.r);
-    const toHex = this.grid.getHex(merchant.toHex.q, merchant.toHex.r);
-    if (fromHex) fromHex.units = fromHex.units.filter(u => u.id !== merchant.id);
-    if (toHex) toHex.units = toHex.units.filter(u => u.id !== merchant.id);
-  }
-
-  /**
-   * Loot resources from a destroyed structure.
-   */
-  _lootStructure(hex, looterPlayerId, players) {
-    const looter = players.find(p => p.id === looterPlayerId);
-    if (!looter || !hex.resourceType) return;
-
-    const amount = hex.structure === 'city' ? 5 : 2;
-    looter.addResource(hex.resourceType, amount);
-    this.pulseEvents.push({
-      type: 'RESOURCES_LOOTED',
-      playerId: looterPlayerId,
-      resourceType: hex.resourceType,
-      amount,
-      hex: { q: hex.q, r: hex.r },
+    this.broadcast('game:phaseStart', {
+      phase: 'setup',
+      setupRound: this.setupRound,
+      setupStep: this.setupStep,
+      currentTurn: this.currentTurn,
+      currentPlayerId: this.turnOrder[this.currentTurn],
     });
+
+    this._startTurnTimer();
   }
 
-  /**
-   * Step 3: Resolve merchant ship placement.
-   */
-  _resolveMerchantPlacement(commands, players) {
-    const placeCommands = commands.filter(c => c.type === 'PLACE_MERCHANT');
+  _startMainGame(players) {
+    this.phase = 'roll';
+    this.currentTurn = 0;
+    this.turnNumber = 1;
 
-    for (const cmd of placeCommands) {
-      const player = players.find(p => p.id === cmd.playerId);
-      if (!player) continue;
+    this.broadcast('game:mainStart', {
+      currentTurn: this.currentTurn,
+      currentPlayerId: this.turnOrder[this.currentTurn],
+    });
 
-      const fromHex = this.grid.getHex(cmd.fromHex?.q, cmd.fromHex?.r);
-      const toHex = this.grid.getHex(cmd.toHex?.q, cmd.toHex?.r);
-      if (!fromHex || !toHex) continue;
+    this._broadcastState(players);
+    this._startTurnTimer();
+  }
 
-      // Validate: hexes must be adjacent
-      if (!this.grid.isAdjacent(cmd.fromHex, cmd.toHex)) continue;
+  // ─── VICTORY CHECK ─────────────────────────────────────────
 
-      // Cost: 2 wood per merchant ship
-      if (!player.spendResource('wood', 2)) continue;
-
-      const merchantId = uuidv4();
-      const merchant = {
-        id: merchantId,
-        playerId: player.id,
-        fromHex: { ...cmd.fromHex },
-        toHex: { ...cmd.toHex },
-      };
-
-      player.merchantShips.push(merchant);
-      this.allMerchantShips.push(merchant);
-
-      // Place on grid
-      fromHex.units.push({ playerId: player.id, type: 'merchant', id: merchantId });
-      toHex.units.push({ playerId: player.id, type: 'merchant', id: merchantId });
-
-      this.pulseEvents.push({
-        type: 'MERCHANT_PLACED',
-        playerId: player.id,
-        fromHex: cmd.fromHex,
-        toHex: cmd.toHex,
-      });
+  _checkVictory(player, players) {
+    const vp = player.calculateVP();
+    if (vp >= config.GAME.VP_WIN) {
+      this._endGame(player, players);
     }
   }
 
-  /**
-   * Step 4: Resolve building commands (villages and cities).
-   */
-  _resolveBuilding(commands, players) {
-    // Build villages
-    const villageCommands = commands.filter(c => c.type === 'BUILD_VILLAGE');
-    for (const cmd of villageCommands) {
-      const player = players.find(p => p.id === cmd.playerId);
-      if (!player) continue;
-
-      const hex = this.grid.getHex(cmd.hex?.q, cmd.hex?.r);
-      if (!hex || hex.terrain !== 'island') continue;
-      if (hex.structure) continue; // already built
-
-      // Cost: 5 wood + 3 stone
-      if (!player.spendResource('wood', 5)) continue;
-      if (!player.spendResource('stone', 3)) {
-        player.addResource('wood', 5); // refund wood
-        continue;
-      }
-
-      hex.structure = 'village';
-      hex.owner = player.id;
-      player.villages.push({ id: uuidv4(), hex: { ...cmd.hex }, resourceType: hex.resourceType });
-
-      this.pulseEvents.push({
-        type: 'VILLAGE_BUILT',
-        playerId: player.id,
-        hex: cmd.hex,
-        resourceType: hex.resourceType,
-      });
-    }
-
-    // Upgrade to city
-    const cityCommands = commands.filter(c => c.type === 'UPGRADE_CITY');
-    for (const cmd of cityCommands) {
-      const player = players.find(p => p.id === cmd.playerId);
-      if (!player) continue;
-
-      const hex = this.grid.getHex(cmd.hex?.q, cmd.hex?.r);
-      if (!hex || hex.structure !== 'village' || hex.owner !== player.id) continue;
-
-      // Cost: 10 stone + 5 iron
-      if (!player.spendResource('stone', 10)) continue;
-      if (!player.spendResource('iron', 5)) {
-        player.addResource('stone', 10); // refund
-        continue;
-      }
-
-      hex.structure = 'city';
-      // Move from villages to cities
-      player.villages = player.villages.filter(
-        v => !(v.hex.q === cmd.hex.q && v.hex.r === cmd.hex.r)
-      );
-      player.cities.push({ id: uuidv4(), hex: { ...cmd.hex }, resourceType: hex.resourceType });
-
-      this.pulseEvents.push({
-        type: 'CITY_UPGRADED',
-        playerId: player.id,
-        hex: cmd.hex,
-      });
-    }
-
-    // Build Navy at capital
-    const navyCommands = commands.filter(c => c.type === 'BUILD_NAVY');
-    for (const cmd of navyCommands) {
-      const player = players.find(p => p.id === cmd.playerId);
-      if (!player) continue;
-
-      // Cost: 5 wood + 3 iron
-      if (!player.spendResource('wood', 5)) continue;
-      if (!player.spendResource('iron', 3)) {
-        player.addResource('wood', 5);
-        continue;
-      }
-
-      const navyId = uuidv4();
-      const capitalHex = player.capitalHex;
-      player.navies.push({ id: navyId, hex: { ...capitalHex } });
-
-      const hex = this.grid.getHex(capitalHex.q, capitalHex.r);
-      if (hex) {
-        hex.units.push({ playerId: player.id, type: 'navy', id: navyId });
-      }
-
-      this.pulseEvents.push({
-        type: 'NAVY_BUILT',
-        playerId: player.id,
-        hex: capitalHex,
-      });
-    }
-  }
-
-  /**
-   * Step 5: Resource collection — villages/cities produce resources
-   * only if connected to capital via merchant ship chain.
-   */
-  _resolveResourceCollection(players) {
-    for (const player of players) {
-      // Villages
-      for (const village of player.villages) {
-        const connected = this.grid.isConnectedToCapital(
-          player.id, village.hex, this.allMerchantShips
-        );
-        if (connected && village.resourceType) {
-          player.addResource(village.resourceType, config.GAME.VILLAGE_PRODUCTION);
-          this.pulseEvents.push({
-            type: 'RESOURCE_PRODUCED',
-            playerId: player.id,
-            hex: village.hex,
-            resourceType: village.resourceType,
-            amount: config.GAME.VILLAGE_PRODUCTION,
-          });
-        }
-      }
-
-      // Cities
-      for (const city of player.cities) {
-        const connected = this.grid.isConnectedToCapital(
-          player.id, city.hex, this.allMerchantShips
-        );
-        if (connected && city.resourceType) {
-          player.addResource(city.resourceType, config.GAME.CITY_PRODUCTION);
-          this.pulseEvents.push({
-            type: 'RESOURCE_PRODUCED',
-            playerId: player.id,
-            hex: city.hex,
-            resourceType: city.resourceType,
-            amount: config.GAME.CITY_PRODUCTION,
-          });
-        }
-      }
-    }
-  }
-
-  /**
-   * Step 6: Check for victory conditions.
-   */
-  _checkVictory(players) {
-    const totalIslands = this.grid.islands.length;
-    if (totalIslands === 0) return null;
-
-    for (const player of players) {
-      // Check island control percentage
-      const ownedIslands = Array.from(this.grid.hexes.values()).filter(
-        h => h.terrain === 'island' && h.owner === player.id
-      ).length;
-
-      if (ownedIslands / totalIslands >= config.GAME.ISLAND_CONTROL_WIN) {
-        return player;
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * End the game — determine placements and record results.
-   */
-  _endGame(players) {
+  _endGame(winner, players) {
     this.phase = 'ended';
-    clearInterval(this.timer);
+    if (this.timer) clearInterval(this.timer);
 
-    // Rank players by total resources
     const ranked = players
-      .map(p => ({ player: p, score: p.getTotalResources() }))
-      .sort((a, b) => b.score - a.score);
+      .map(p => ({ player: p, vp: p.calculateVP() }))
+      .sort((a, b) => b.vp - a.vp);
 
     const pointsTable = [
       config.GAME.POINTS.FIRST,
@@ -538,36 +448,50 @@ class GameEngine {
       login: entry.player.login,
       displayName: entry.player.displayName,
       coalitionColor: entry.player.coalitionColor,
+      color: entry.player.color,
       placement: index + 1,
-      score: entry.score,
+      score: entry.vp,
       pointsChange: pointsTable[index] || 0,
       resources: { ...entry.player.resources },
     }));
 
     this.broadcast('game:ended', {
-      pulseNumber: this.pulseNumber,
+      turnNumber: this.turnNumber,
+      winner: winner ? winner.toPublicJSON() : null,
       placements,
     });
 
-    // Return placements for Room to record in DB
     return placements;
   }
 
+  // ─── STATE BROADCAST ───────────────────────────────────────
+
+  _broadcastState(players) {
+    this.broadcast('game:stateUpdate', this.getFullState(players));
+  }
+
   /**
-   * Get the current game state for a newly connected/reconnecting player.
+   * Get the full game state.
    */
   getFullState(players) {
     return {
       phase: this.phase,
-      pulseNumber: this.pulseNumber,
+      currentTurn: this.currentTurn,
+      currentPlayerId: this.turnOrder[this.currentTurn],
+      turnNumber: this.turnNumber,
       timeRemaining: this.timeRemaining,
+      lastDice: this.lastDice,
+      setupRound: this.setupRound,
+      setupStep: this.setupStep,
       grid: this.grid.toJSON(),
       players: players.map(p => p.toPublicJSON()),
+      events: this.events.slice(-10),
+      costs: COSTS,
     };
   }
 
   /**
-   * Cleanup when game is destroyed.
+   * Cleanup.
    */
   destroy() {
     if (this.timer) {

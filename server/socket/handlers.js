@@ -79,13 +79,13 @@ function registerSocketHandlers(io, socket, roomManager, playerManager) {
 
   // ─── GAME EVENTS ──────────────────────────────────────────
 
-  socket.on(E.GAME_COMMAND, ({ commands }) => {
+  socket.on(E.GAME_COMMAND, (command) => {
     const room = roomManager.getPlayerRoom(user.id);
     if (!room) return;
 
-    const success = room.submitCommands(user.id, commands);
-    if (!success) {
-      socket.emit(E.ERROR, { code: 'COMMAND_FAILED', message: 'Cannot submit commands now' });
+    const result = room.handleCommand(user.id, command);
+    if (!result.success) {
+      socket.emit(E.ERROR, { code: 'COMMAND_FAILED', message: result.error || 'Cannot execute command' });
     }
   });
 

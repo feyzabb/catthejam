@@ -1,6 +1,5 @@
 /**
- * main.js — Client-side application bootstrap.
- * Handles screen management, Socket.IO events, lobby UI, and game canvas.
+ * main.js — Client-side application bootstrap for Deep Sea Pulse: Catan Edition.
  */
 
 // ─── STATE ─────────────────────────────────────────────────
@@ -9,8 +8,8 @@ const state = {
   currentRoom: null,
   gameState: null,
   selectedAction: null,
-  commandQueue: [],
   socket: null,
+  myPlayerIndex: -1,
 };
 
 // ─── DOM REFS ──────────────────────────────────────────────
@@ -96,100 +95,91 @@ function connectSocket() {
   const s = state.socket;
 
   s.on('connect', () => console.log('[Socket] Connected'));
-  s.on('connect_error', (err) => {
-    console.error('[Socket] Connection error:', err.message);
-    if (err.message === 'Authentication required') showScreen('login');
-  });
-
-  // Player info
+  
   s.on('player:info', ({ user }) => {
     state.user = user;
     updateUserBadge();
   });
 
-  // Room list updates
   s.on('room:list', (rooms) => renderRoomList(rooms));
-
-  // Room state updated
   s.on('room:updated', (room) => {
     state.currentRoom = room;
     updateRoomLobby(room);
   });
 
-  // Game started!
   s.on('room:gameStart', ({ roomId, gameState }) => {
-    console.log('[Game] Starting!', gameState);
     state.gameState = gameState;
+    const me = gameState.players.find(p => p.id === state.user.id);
+    state.myPlayerIndex = me ? me.playerIndex : -1;
     showScreen('game');
     renderGameState(gameState);
+    addEventLog('Game Started! Setup Phase.');
   });
 
-  // Planning phase
-  s.on('game:phaseStart', ({ phase, pulseNumber, timer }) => {
-    if (state.gameState) {
-      state.gameState.phase = phase;
-      state.gameState.pulseNumber = pulseNumber;
-      state.gameState.timeRemaining = timer;
+  s.on('game:stateUpdate', (gs) => {
+    state.gameState = gs;
+    renderGameState(gs);
+    updateUIControls(gs);
+  });
+
+  s.on('game:phaseStart', (data) => {
+    addEventLog(`Phase: ${data.phase.toUpperCase()}`);
+  });
+
+  s.on('game:turnChanged', (data) => {
+    addEventLog(`Turn ${data.turnNumber}: Player ${data.currentTurn + 1}`);
+    if (data.currentPlayerId === state.user.id) {
+      addEventLog('🎲 It is your turn! Please roll the dice.');
     }
-    state.commandQueue = [];
-    updatePulseHUD(pulseNumber, timer);
-    startTimerCountdown(timer);
   });
 
-  // Pulse result
-  s.on('game:pulseResult', (result) => {
-    state.gameState = { ...state.gameState, ...result, phase: 'planning' };
-    renderGameState(state.gameState);
-    renderPulseEvents(result.events);
+  s.on('game:dice', (data) => {
+    const hudDice = $('#hud-dice');
+    hudDice.classList.remove('hidden');
+    $('#die1').textContent = data.dice[0];
+    $('#die2').textContent = data.dice[1];
+    addEventLog(`🎲 Rolled a ${data.total}!`);
+    setTimeout(() => hudDice.classList.add('hidden'), 3000);
   });
 
-  // Game ended
   s.on('game:ended', ({ placements }) => {
     showGameOverModal(placements);
   });
 
-  // Errors
   s.on('error', ({ code, message }) => {
-    console.error(`[Error] ${code}: ${message}`);
+    addEventLog(`❌ ${message}`);
   });
 }
 
-// ─── ROOM LIST ─────────────────────────────────────────────
+// ─── ROOM LIST & LOBBY ────────────────────────────────────
 function renderRoomList(rooms) {
   const list = $('#room-list');
   if (!rooms.length) {
     list.innerHTML = '<div class="empty-state">No rooms available. Create one!</div>';
     return;
   }
-  list.innerHTML = rooms.map(r => {
-    const fullClass = r.playerCount >= r.maxPlayers ? 'full' : '';
-    return `
-      <div class="room-card" data-room-id="${r.id}">
-        <div class="room-info">
-          <h4>${escapeHtml(r.name)}</h4>
-          <p>${r.players.map(p => p.login).join(', ') || 'Empty'}</p>
-        </div>
-        <span class="room-players-count ${fullClass}">${r.playerCount}/${r.maxPlayers}</span>
-      </div>`;
-  }).join('');
+  list.innerHTML = rooms.map(r => `
+    <div class="room-card" data-room-id="${r.id}">
+      <div class="room-info">
+        <h4>${escapeHtml(r.name)}</h4>
+        <p>${r.players.map(p => p.login).join(', ') || 'Empty'}</p>
+      </div>
+      <span class="room-players-count ${r.playerCount >= r.maxPlayers ? 'full' : ''}">${r.playerCount}/${r.maxPlayers}</span>
+    </div>`).join('');
 
-  // Click to join
   list.querySelectorAll('.room-card').forEach(card => {
     card.addEventListener('click', () => {
-      const roomId = card.dataset.roomId;
-      state.socket.emit('room:join', { roomId });
+      state.socket.emit('room:join', { roomId: card.dataset.roomId });
     });
   });
 }
 
-// ─── ROOM LOBBY ────────────────────────────────────────────
 function updateRoomLobby(room) {
   const panel = $('#panel-room-lobby');
   panel.classList.remove('hidden');
   $('#room-lobby-title').textContent = room.name;
   $('#room-status-text').textContent = `${room.playerCount}/${room.maxPlayers} players — ${room.playerCount < room.maxPlayers ? 'Waiting...' : 'Starting!'}`;
 
-  // Update slots
   for (let i = 0; i < 4; i++) {
     const slot = $(`#slot-${i}`);
     const player = room.players[i];
@@ -200,7 +190,6 @@ function updateRoomLobby(room) {
         <div class="slot-player">
           <img src="${player.avatarUrl || ''}" alt="" onerror="this.style.display='none'" style="width:48px;height:48px;border-radius:50%">
           <div class="slot-name">${player.login}</div>
-          <div class="slot-coalition" style="color:${player.coalitionColor}">${player.coalitionName || ''}</div>
         </div>`;
     } else {
       slot.classList.remove('filled');
@@ -217,10 +206,9 @@ function initGameCanvas() {
   canvas = $('#game-canvas');
   ctx = canvas.getContext('2d');
   canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight - 120;
-  camera = { x: canvas.width / 2, y: canvas.height / 2, zoom: 1 };
+  canvas.height = window.innerHeight - 150;
+  camera = { x: canvas.width / 2, y: canvas.height / 2, zoom: 1.2 };
 
-  // Mouse drag for panning
   let dragging = false, lastX, lastY;
   canvas.addEventListener('mousedown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
   canvas.addEventListener('mousemove', (e) => {
@@ -233,66 +221,30 @@ function initGameCanvas() {
   canvas.addEventListener('mouseup', () => dragging = false);
   canvas.addEventListener('mouseleave', () => dragging = false);
 
-  // Zoom
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
-    camera.zoom = Math.max(0.3, Math.min(2, camera.zoom - e.deltaY * 0.001));
+    camera.zoom = Math.max(0.5, Math.min(2.5, camera.zoom - e.deltaY * 0.001));
     if (state.gameState) renderGameState(state.gameState);
   });
 
-  // Click to select hex
   canvas.addEventListener('click', (e) => {
     if (dragging) return;
     const rect = canvas.getBoundingClientRect();
     const px = (e.clientX - rect.left - camera.x) / camera.zoom;
     const py = (e.clientY - rect.top - camera.y) / camera.zoom;
-    const hex = pixelToHex(px, py);
-    handleHexClick(hex);
+    handleCanvasClick(px, py);
   });
 
   window.addEventListener('resize', () => {
     canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight - 120;
+    canvas.height = window.innerHeight - 150;
     if (state.gameState) renderGameState(state.gameState);
   });
 }
 
-// ─── HEX RENDERING ────────────────────────────────────────
-const HEX_SIZE = 40;
+// ─── RENDERING ─────────────────────────────────────────────
+const HEX_SIZE = 50;
 const SQRT3 = Math.sqrt(3);
-
-function hexToPixel(q, r) {
-  const x = HEX_SIZE * SQRT3 * (q + r / 2);
-  const y = HEX_SIZE * (3 / 2) * r;
-  return { x, y };
-}
-
-function pixelToHex(px, py) {
-  const q = (SQRT3 / 3 * px - 1 / 3 * py) / HEX_SIZE;
-  const r = (2 / 3 * py) / HEX_SIZE;
-  // Round
-  const s = -q - r;
-  let rq = Math.round(q), rr = Math.round(r), rs = Math.round(s);
-  const qd = Math.abs(rq - q), rd = Math.abs(rr - r), sd = Math.abs(rs - s);
-  if (qd > rd && qd > sd) rq = -rr - rs;
-  else if (rd > sd) rr = -rq - rs;
-  return { q: rq, r: rr };
-}
-
-function drawHexImage(ctx, x, y, img, ownerColor) {
-  if (!img || !img.complete) return;
-  
-  // Pointy-topped hex dimensions
-  const width = SQRT3 * HEX_SIZE;
-  const height = 2 * HEX_SIZE; 
-  
-  // Scale slightly to prevent tiny gaps between hexes
-  const scale = 1.05; 
-  
-  ctx.drawImage(img, x - (width * scale) / 2, y - (height * scale) / 2, width * scale, height * scale);
-
-  // We no longer draw the hex stroke border, giving it a pure island/asset look
-}
 
 function renderGameState(gs) {
   if (!ctx || !gs) return;
@@ -301,355 +253,281 @@ function renderGameState(gs) {
   ctx.translate(camera.x, camera.y);
   ctx.scale(camera.zoom, camera.zoom);
 
-  // Draw hexes
+  // 1. Draw Hexes (Islands)
   for (const hex of gs.grid.hexes) {
-    const { x, y } = hexToPixel(hex.q, hex.r);
+    const { x, y } = getHexPixel(hex.q, hex.r);
+    const img = GameAssets.getIslandTile(hex.resourceType);
     
-    let img = GameAssets.sea;
-    let ownerColor = null;
-
-    if (hex.terrain === 'island') {
-      img = GameAssets[hex.resourceType];
-      if (hex.owner) ownerColor = getPlayerColor(hex.owner, gs.players, 1);
-    } else if (hex.terrain === 'capital') {
-      img = GameAssets.capital;
-      if (hex.owner) ownerColor = getPlayerColor(hex.owner, gs.players, 1);
-    } else {
-      img = GameAssets.sea;
+    if (img && img.complete) {
+      const w = SQRT3 * HEX_SIZE * 1.05;
+      const h = 2 * HEX_SIZE * 1.05;
+      ctx.drawImage(img, x - w/2, y - h/2, w, h);
     }
 
-    drawHexImage(ctx, x, y, img, ownerColor);
-
-    // Draw Catan-style dice numbers for resources
-    if (hex.terrain === 'island' && hex.diceNumber) {
+    // Number token
+    if (hex.diceNumber) {
       ctx.fillStyle = '#fef08a';
       ctx.beginPath();
-      ctx.arc(x, y, 14, 0, Math.PI * 2);
+      ctx.arc(x, y, 16, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 2;
       ctx.stroke();
       
-      ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 14px Outfit';
+      ctx.fillStyle = (hex.diceNumber === 6 || hex.diceNumber === 8) ? '#ef4444' : '#0f172a';
+      ctx.font = 'bold 16px Outfit';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(hex.diceNumber, x, y);
     }
 
-    // Draw structures if any (villages/cities)
-    if (hex.structure === 'village') {
-      ctx.drawImage(GameAssets.village, x - 16, y - 24, 32, 32);
-    } else if (hex.structure === 'city') {
-      ctx.drawImage(GameAssets.city, x - 20, y - 28, 40, 40);
+    // Robber
+    if (hex.hasRobber && GameAssets.robber.complete) {
+      ctx.drawImage(GameAssets.robber, x - 20, y - 20, 40, 40);
     }
+  }
 
-    // Draw units
-    if (hex.units && hex.units.length > 0) {
-      const navies = hex.units.filter(u => u.type === 'navy');
-      const merchants = hex.units.filter(u => u.type === 'merchant');
-      if (navies.length > 0) {
-        ctx.drawImage(GameAssets.navy, x - 16, y + 4, 32, 32);
-        if (navies.length > 1) {
-          ctx.fillStyle = '#fff';
-          ctx.font = 'bold 14px Outfit';
-          ctx.textAlign = 'center';
-          ctx.fillText(navies.length, x + 20, y + 16);
+  // 2. Draw Edges (Roads)
+  ctx.lineWidth = 6;
+  for (const edge of gs.grid.edges) {
+    if (edge.road) {
+      const p = gs.players.find(pl => pl.id === edge.road.playerId);
+      ctx.strokeStyle = p ? p.color : '#fff';
+      ctx.beginPath();
+      ctx.moveTo(edge.v1.x, edge.v1.y);
+      ctx.lineTo(edge.v2.x, edge.v2.y);
+      ctx.stroke();
+    }
+  }
+
+  // 3. Draw Vertices (Buildings)
+  for (const v of gs.grid.vertices) {
+    if (v.building) {
+      const p = gs.players.find(pl => pl.id === v.building.playerId);
+      const img = v.building.type === 'city' ? GameAssets.city_blue : GameAssets.village_blue;
+      
+      if (img && img.complete) {
+        // Draw building
+        const s = v.building.type === 'city' ? 48 : 36;
+        ctx.drawImage(img, v.x - s/2, v.y - s/2, s, s);
+        
+        // Draw player color circle underneath to identify owner
+        if (p) {
+          ctx.beginPath();
+          ctx.arc(v.x, v.y + 10, 8, 0, Math.PI*2);
+          ctx.fillStyle = p.color;
+          ctx.fill();
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 1;
+          ctx.stroke();
         }
       }
-      if (merchants.length > 0) {
-        ctx.drawImage(GameAssets.merchant, x + 8, y - 24, 24, 24);
-      }
+    } else if (state.selectedAction === 'BUILD_VILLAGE') {
+      // Highlight empty vertices if building a village
+      ctx.beginPath();
+      ctx.arc(v.x, v.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fill();
     }
   }
 
   ctx.restore();
-
-  // Update HUD
-  updateResourceHUD(gs);
-  updatePlayersHUD(gs);
-  updateCommandCount();
+  updateHUD(gs);
 }
 
-function getPlayerColor(playerId, players, alpha) {
-  const p = players.find(pl => pl.id === playerId);
-  if (!p) return `rgba(91,124,153,${alpha})`;
-  const color = p.coalitionColor || '#5B7C99';
-  const r = parseInt(color.slice(1, 3), 16);
-  const g = parseInt(color.slice(3, 5), 16);
-  const b = parseInt(color.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
+function getHexPixel(q, r) {
+  return {
+    x: HEX_SIZE * SQRT3 * (q + r / 2),
+    y: HEX_SIZE * (3 / 2) * r
+  };
 }
 
-// ─── HUD UPDATES ───────────────────────────────────────────
-function updateResourceHUD(gs) {
+// ─── CLICK HANDLING ────────────────────────────────────────
+function handleCanvasClick(px, py) {
+  if (!state.gameState || !state.selectedAction) return;
+
+  // Find nearest vertex (for villages/cities)
+  let nearestVertex = null;
+  let minDistV = 20; // 20px snap distance
+
+  for (const v of state.gameState.grid.vertices) {
+    const dist = Math.hypot(px - v.x, py - v.y);
+    if (dist < minDistV) {
+      minDistV = dist;
+      nearestVertex = v.id;
+    }
+  }
+
+  // Find nearest edge (for roads)
+  let nearestEdge = null;
+  let minDistE = 15;
+
+  for (const e of state.gameState.grid.edges) {
+    // Distance from point to line segment
+    const dist = distToSegment(
+      {x: px, y: py},
+      {x: e.v1.x, y: e.v1.y},
+      {x: e.v2.x, y: e.v2.y}
+    );
+    if (dist < minDistE) {
+      minDistE = dist;
+      nearestEdge = e.id;
+    }
+  }
+
+  // Send command based on action
+  if (state.selectedAction === 'BUILD_VILLAGE' && nearestVertex) {
+    state.socket.emit('game:command', { type: 'PLACE_VILLAGE', vertexId: nearestVertex });
+  } 
+  else if (state.selectedAction === 'BUILD_ROAD' && nearestEdge) {
+    state.socket.emit('game:command', { type: 'PLACE_ROAD', edgeId: nearestEdge });
+  }
+  else if (state.selectedAction === 'UPGRADE_CITY' && nearestVertex) {
+    state.socket.emit('game:command', { type: 'UPGRADE_CITY', vertexId: nearestVertex });
+  }
+
+  // Deselect after click
+  state.selectedAction = null;
+  $$('.action-btn').forEach(b => b.classList.remove('active'));
+  renderGameState(state.gameState);
+}
+
+// Math util for line segment distance
+function distToSegment(p, v, w) {
+  const l2 = (v.x - w.x)**2 + (v.y - w.y)**2;
+  if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+  let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
+}
+
+// ─── HUD & UI ──────────────────────────────────────────────
+function updateHUD(gs) {
   const me = gs.players.find(p => p.id === state.user?.id);
-  if (!me) return;
-  $('#res-wood .res-val').textContent = me.resources.wood;
-  $('#res-stone .res-val').textContent = me.resources.stone;
-  $('#res-iron .res-val').textContent = me.resources.iron;
-  $('#res-gold .res-val').textContent = me.resources.gold;
-}
+  if (me) {
+    $('#res-wood .res-val').textContent = me.resources.wood || 0;
+    $('#res-stone .res-val').textContent = me.resources.stone || 0;
+    $('#res-iron .res-val').textContent = me.resources.iron || 0;
+    $('#res-gold .res-val').textContent = me.resources.gold || 0;
+    $('#res-food .res-val').textContent = me.resources.food || 0;
+  }
 
-function updatePlayersHUD(gs) {
-  const hud = $('#hud-players');
-  hud.innerHTML = gs.players.map(p => `
-    <div class="hud-player" style="border-color:${p.coalitionColor}">
-      <span>${p.login}</span>
+  $('#status-phase').textContent = `${gs.phase.toUpperCase()} PHASE`;
+  
+  const currentPlayer = gs.players.find(p => p.id === gs.currentPlayerId);
+  $('#status-turn').textContent = currentPlayer ? `${currentPlayer.login}'s Turn` : '';
+
+  $('#hud-players').innerHTML = gs.players.map(p => `
+    <div class="hud-player" style="border-color:${p.color}">
+      <span>${p.login} (${p.victoryPoints} VP)</span>
     </div>`).join('');
 }
 
-function updatePulseHUD(pulseNumber, timer) {
-  $('#pulse-number').textContent = pulseNumber;
-  $('#pulse-timer').textContent = timer;
-  $('#pulse-timer').classList.toggle('urgent', timer <= 5);
-}
-
-function updateCommandCount() {
-  $('#queue-count').textContent = state.commandQueue.length;
-}
-
-let timerInterval;
-function startTimerCountdown(seconds) {
-  clearInterval(timerInterval);
-  let t = seconds;
-  updatePulseHUD(state.gameState?.pulseNumber || 1, t);
-  timerInterval = setInterval(() => {
-    t--;
-    if (t < 0) { clearInterval(timerInterval); return; }
-    updatePulseHUD(state.gameState?.pulseNumber || 1, t);
-    if (t === 0) {
-      // Send commands
-      if (state.commandQueue.length > 0) {
-        state.socket.emit('game:command', { commands: state.commandQueue });
-      }
-    }
-  }, 1000);
-}
-
-// ─── HEX CLICK HANDLER ────────────────────────────────────
-function handleHexClick(hexCoords) {
-  if (!state.selectedAction || !state.gameState) return;
-  const action = state.selectedAction;
+function updateUIControls(gs) {
+  const isMyTurn = gs.currentPlayerId === state.user.id;
+  $('#hud-actions').style.display = 'flex';
   
-  // Find the actual hex object from the game state to check its contents
-  const hex = state.gameState.grid.hexes.find(h => h.q === hexCoords.q && h.r === hexCoords.r) || hexCoords;
-  const me = state.user;
+  const rollBtn = $('#btn-roll-dice');
+  const buildBtns = [$('#btn-build-road'), $('#btn-build-village'), $('#btn-upgrade-city')];
+  const endBtn = $('#btn-end-turn');
 
-  if (action === 'BUILD_NAVY') {
-    // Sadece başkentte üretilebilir
-    const playerState = state.gameState.players.find(p => p.id === me.id);
-    if (playerState && playerState.capitalHex.q === hex.q && playerState.capitalHex.r === hex.r) {
-      state.commandQueue.push({ type: 'BUILD_NAVY', capitalHex: hexCoords });
-      addEventLog(`Queued: Build Navy at Capital`);
-    } else {
-      addEventLog(`⚠️ Navies can only be built at your Capital`);
-    }
-  } else if (action === 'BUILD_VILLAGE') {
-    state.commandQueue.push({ type: 'BUILD_VILLAGE', hex: hexCoords });
-    addEventLog(`Queued: Build Village at (${hexCoords.q},${hexCoords.r})`);
-  } else if (action === 'UPGRADE_CITY') {
-    state.commandQueue.push({ type: 'UPGRADE_CITY', hex: hexCoords });
-    addEventLog(`Queued: Upgrade City at (${hexCoords.q},${hexCoords.r})`);
-  } else if (action === 'MOVE_NAVY') {
-    if (!state.selectedNavyId) {
-      // Step 1: Select a Navy
-      const myNavy = hex.units?.find(u => u.type === 'navy' && u.playerId === me.id);
-      if (myNavy) {
-        state.selectedNavyId = myNavy.id;
-        state.selectedHex = hexCoords;
-        addEventLog(`Selected Navy at (${hexCoords.q},${hexCoords.r}). Click target.`);
-      } else {
-        addEventLog(`⚠️ No friendly Navy found here`);
-      }
-    } else {
-      // Step 2: Select Target
-      state.commandQueue.push({ type: 'MOVE_NAVY', navyId: state.selectedNavyId, targetHex: hexCoords });
-      addEventLog(`Queued: Move Navy to (${hexCoords.q},${hexCoords.r})`);
-      state.selectedNavyId = null;
-      state.selectedHex = null;
-      // İsteğe bağlı: Seçimi sıfırlayabiliriz
-      // $$('.action-btn').forEach(b => b.classList.remove('active'));
-      // state.selectedAction = null;
-    }
-  } else if (action === 'PLACE_MERCHANT') {
-    if (!state.selectedHex) {
-      // Step 1: Select first hex
-      state.selectedHex = hexCoords;
-      addEventLog(`Selected start for Trade Route. Click adjacent hex.`);
-    } else {
-      // Step 2: Select second hex
-      state.commandQueue.push({ type: 'PLACE_MERCHANT', fromHex: state.selectedHex, toHex: hexCoords });
-      addEventLog(`Queued: Trade Route (${state.selectedHex.q},${state.selectedHex.r}) → (${hexCoords.q},${hexCoords.r})`);
-      state.selectedHex = null;
-    }
+  if (!isMyTurn) {
+    rollBtn.style.display = 'none';
+    buildBtns.forEach(b => b.style.opacity = '0.5');
+    endBtn.style.display = 'none';
+    return;
   }
 
-  updateCommandCount();
+  buildBtns.forEach(b => b.style.opacity = '1');
+
+  if (gs.phase === 'roll') {
+    rollBtn.style.display = 'flex';
+    endBtn.style.display = 'none';
+  } else if (gs.phase === 'build' || gs.phase === 'setup') {
+    rollBtn.style.display = 'none';
+    endBtn.style.display = 'flex';
+  } else {
+    rollBtn.style.display = 'none';
+    endBtn.style.display = 'none';
+  }
 }
 
-// ─── PULSE EVENTS LOG ──────────────────────────────────────
-function addEventLog(message) {
+// ─── EVENTS ────────────────────────────────────────────────
+function addEventLog(msg) {
   const log = $('#event-log');
   const div = document.createElement('div');
   div.className = 'event-item';
-  div.textContent = message;
+  div.textContent = msg;
   log.prepend(div);
-  while (log.children.length > 15) log.removeChild(log.lastChild);
+  while (log.children.length > 10) log.removeChild(log.lastChild);
 }
 
-function renderPulseEvents(events) {
-  if (!events || !events.length) return;
-  for (const ev of events.slice(-5)) {
-    addEventLog(formatEvent(ev));
-  }
-}
-
-function formatEvent(ev) {
-  switch (ev.type) {
-    case 'NAVY_MOVED': return `⛵ Navy moved to (${ev.to.q},${ev.to.r})`;
-    case 'MERCHANT_PLACED': return `🚢 Trade route established`;
-    case 'VILLAGE_BUILT': return `🏘️ Village built (${ev.resourceType})`;
-    case 'CITY_UPGRADED': return `🏰 City upgraded!`;
-    case 'NAVY_BUILT': return `⛵ New navy deployed`;
-    case 'MERCHANT_DESTROYED': return `💥 Merchant ship destroyed!`;
-    case 'VILLAGE_DESTROYED': return `💥 Village razed!`;
-    case 'RESOURCE_PRODUCED': return `📦 +${ev.amount} ${ev.resourceType}`;
-    default: return ev.type;
-  }
-}
-
-// ─── GAME OVER MODAL ───────────────────────────────────────
-function showGameOverModal(placements) {
-  const modal = $('#modal-game-over');
-  const list = $('#results-list');
-  const medals = ['🥇', '🥈', '🥉', '4th'];
-
-  list.innerHTML = placements.map((p, i) => {
-    const sign = p.pointsChange >= 0 ? '+' : '';
-    const cls = p.pointsChange >= 0 ? 'positive' : 'negative';
-    return `
-      <div class="result-row">
-        <span class="result-placement">${medals[i]}</span>
-        <span class="result-name" style="color:${p.coalitionColor}">${p.displayName || p.login}</span>
-        <span class="result-score">${p.score} pts</span>
-        <span class="result-points ${cls}">${sign}${p.pointsChange}</span>
-      </div>`;
-  }).join('');
-
-  modal.classList.remove('hidden');
-}
-
-// ─── EVENT LISTENERS ───────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   checkAuth();
 
-  // Update UI emojis to custom PNG assets
-  if (typeof GameAssets !== 'undefined') {
-    $('#res-wood .res-icon').innerHTML = `<img src="${GameAssets.icon_wood.src}" width="16" height="16" style="vertical-align: middle;">`;
-    $('#res-stone .res-icon').innerHTML = `<img src="${GameAssets.icon_stone.src}" width="16" height="16" style="vertical-align: middle;">`;
-    $('#res-iron .res-icon').innerHTML = `<img src="${GameAssets.icon_iron.src}" width="16" height="16" style="vertical-align: middle;">`;
-    $('#res-gold .res-icon').innerHTML = `<img src="${GameAssets.icon_gold.src}" width="16" height="16" style="vertical-align: middle;">`;
-
-    $('#btn-build-navy .action-icon').innerHTML = `<img src="${GameAssets.icon_build_navy.src}" width="24" height="24">`;
-    $('#btn-place-merchant .action-icon').innerHTML = `<img src="${GameAssets.icon_place_merchant.src}" width="24" height="24">`;
-    $('#btn-build-village .action-icon').innerHTML = `<img src="${GameAssets.icon_build_village.src}" width="24" height="24">`;
-    $('#btn-upgrade-city .action-icon').innerHTML = `<img src="${GameAssets.icon_upgrade_city.src}" width="24" height="24">`;
-  }
-
-  // Direct Login Handler
-  const loginBtn = $('#btn-login');
-  if (loginBtn) {
-    loginBtn.addEventListener('click', async () => {
-      const loginName = $('#intra-login-input').value.trim();
-      const errorDiv = $('#login-error');
-      
-      if (!loginName) {
-        errorDiv.textContent = 'Please enter your 42 Intra login';
-        errorDiv.style.display = 'block';
-        return;
-      }
-      
-      loginBtn.disabled = true;
-      loginBtn.innerHTML = 'Connecting to 42...';
-      errorDiv.style.display = 'none';
-
-      try {
-        const res = await fetch('/auth/42/direct-login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ login: loginName })
-        });
-        const data = await res.json();
-        
-        if (data.success) {
-          await checkAuth(); // Reload user state and switch to lobby
-        } else {
-          errorDiv.textContent = data.error || 'User not found in 42 Intra';
-          errorDiv.style.display = 'block';
-          loginBtn.disabled = false;
-          loginBtn.innerHTML = 'Enter Game';
-        }
-      } catch (err) {
-        errorDiv.textContent = 'Network error';
-        errorDiv.style.display = 'block';
-        loginBtn.disabled = false;
-        loginBtn.innerHTML = 'Enter Game';
-      }
-    });
-  }
-
-  // Create room modal
-  $('#btn-create-room').addEventListener('click', () => {
-    $('#modal-create-room').classList.remove('hidden');
-    $('#input-room-name').focus();
-  });
-  $('#btn-cancel-create').addEventListener('click', () => {
-    $('#modal-create-room').classList.add('hidden');
-  });
-  $('#btn-confirm-create').addEventListener('click', () => {
-    const name = $('#input-room-name').value.trim() || `${state.user.login}'s Room`;
-    state.socket.emit('room:create', { name });
-    $('#modal-create-room').classList.add('hidden');
-    $('#input-room-name').value = '';
-  });
-
-  // Leave room
-  $('#btn-leave-room').addEventListener('click', () => {
-    state.socket.emit('room:leave');
-    state.currentRoom = null;
-    $('#panel-room-lobby').classList.add('hidden');
-  });
-
-  // Back to lobby from game over
-  $('#btn-back-lobby').addEventListener('click', () => {
-    $('#modal-game-over').classList.add('hidden');
-    showScreen('lobby');
-    loadLeaderboard();
-    state.socket.emit('room:leave');
-  });
-
-  // Action buttons
+  // Map action buttons
   const actionBtns = {
-    'btn-build-navy': 'BUILD_NAVY',
-    'btn-place-merchant': 'PLACE_MERCHANT',
+    'btn-build-road': 'BUILD_ROAD',
     'btn-build-village': 'BUILD_VILLAGE',
     'btn-upgrade-city': 'UPGRADE_CITY',
   };
+
   Object.entries(actionBtns).forEach(([btnId, action]) => {
-    $(`#${btnId}`).addEventListener('click', () => {
-      $$('.action-btn').forEach(b => b.classList.remove('active'));
-      if (state.selectedAction === action) {
-        state.selectedAction = null;
-      } else {
-        state.selectedAction = action;
-        $(`#${btnId}`).classList.add('active');
-      }
-    });
+    const btn = $(`#${btnId}`);
+    if (btn) {
+      btn.addEventListener('click', () => {
+        if (state.gameState?.currentPlayerId !== state.user.id) return;
+        
+        $$('.action-btn').forEach(b => b.classList.remove('active'));
+        if (state.selectedAction === action) {
+          state.selectedAction = null;
+        } else {
+          state.selectedAction = action;
+          btn.classList.add('active');
+        }
+        if (state.gameState) renderGameState(state.gameState); // re-render to show highlights
+      });
+    }
   });
+
+  // End turn & Roll
+  $('#btn-roll-dice')?.addEventListener('click', () => {
+    state.socket.emit('game:command', { type: 'ROLL_DICE' });
+  });
+  
+  $('#btn-end-turn')?.addEventListener('click', () => {
+    state.socket.emit('game:command', { type: 'END_TURN' });
+    state.selectedAction = null;
+    $$('.action-btn').forEach(b => b.classList.remove('active'));
+  });
+
+  // Login
+  $('#btn-login')?.addEventListener('click', async () => {
+    const loginName = $('#intra-login-input').value.trim();
+    if (!loginName) return;
+    try {
+      const res = await fetch('/auth/42/direct-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login: loginName })
+      });
+      const data = await res.json();
+      if (data.success) await checkAuth();
+    } catch (e) {}
+  });
+
+  // Room creation
+  $('#btn-create-room')?.addEventListener('click', () => {
+    $('#modal-create-room').classList.remove('hidden');
+  });
+  $('#btn-confirm-create')?.addEventListener('click', () => {
+    const name = $('#input-room-name').value.trim() || 'Room';
+    state.socket.emit('room:create', { name });
+    $('#modal-create-room').classList.add('hidden');
+  });
+  $('#btn-cancel-create')?.addEventListener('click', () => $('#modal-create-room').classList.add('hidden'));
 });
 
-// ─── UTILS ─────────────────────────────────────────────────
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;

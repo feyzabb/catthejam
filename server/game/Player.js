@@ -1,20 +1,15 @@
 /**
- * Player.js — Player class representing a connected user in a game room.
+ * Player.js — Player class for Catan-style game.
  * 
- * Tracks the player's identity, resources, units, structures, 
- * and the commands they queue during each planning phase.
+ * Tracks identity, resources (wood, stone, iron, gold, food),
+ * buildings, roads, victory points, and turn commands.
  */
 const config = require('../config');
 
 class Player {
-  /**
-   * @param {object} userData — Session user object from OAuth
-   * @param {string} socketId — Socket.IO socket id
-   * @param {number} playerIndex — 0-3 seat index in the room
-   */
   constructor(userData, socketId, playerIndex) {
     // Identity
-    this.id = userData.id;                       // DB player id
+    this.id = userData.id;
     this.intraId = userData.intraId;
     this.login = userData.login;
     this.displayName = userData.displayName;
@@ -28,59 +23,40 @@ class Player {
     this.coalitionImageUrl = userData.coalitionImageUrl;
 
     // Game state
-    this.playerIndex = playerIndex;              // 0-3 seat position
+    this.playerIndex = playerIndex;
     this.isReady = false;
     this.isConnected = true;
 
-    // Resources
+    // Player color for the board (fixed per seat)
+    const colors = ['#3B82F6', '#EF4444', '#22C55E', '#A855F7'];
+    this.color = colors[playerIndex] || '#5B7C99';
+
+    // Resources (Catan-style, 5 types)
     this.resources = {
-      wood: 10,
-      stone: 10,
-      iron: 5,
+      wood: 0,
+      stone: 0,
+      iron: 0,
       gold: 0,
+      food: 0,
     };
 
-    // Capital hex (assigned at game start)
-    this.capitalHex = null;
+    // Victory points
+    this.victoryPoints = 0;
 
-    // Command queue for current pulse
-    this.pendingCommands = [];
+    // Buildings & Roads (tracked by vertex/edge ID)
+    this.villages = [];    // vertex IDs
+    this.cities = [];      // vertex IDs
+    this.roads = [];       // edge IDs
 
-    // Units & structures tracked by hex position
-    this.navies = [];           // Array of { id, hex: {q, r} }
-    this.merchantShips = [];    // Array of { id, fromHex, toHex }
-    this.villages = [];         // Array of { id, hex: {q, r}, resourceType }
-    this.cities = [];           // Array of { id, hex: {q, r}, resourceType }
+    // Pending command for current turn
+    this.pendingCommand = null;
+
+    // Setup phase: how many settlements placed (0, 1, or 2)
+    this.setupPlaced = 0;
   }
 
   /**
-   * Queue commands for this pulse's planning phase.
-   * Validates basic command structure before accepting.
-   */
-  addCommands(commands) {
-    if (!Array.isArray(commands)) return;
-
-    const validTypes = [
-      'MOVE_NAVY', 'PLACE_MERCHANT', 'BUILD_VILLAGE',
-      'UPGRADE_CITY', 'BUILD_NAVY',
-    ];
-
-    for (const cmd of commands) {
-      if (cmd && validTypes.includes(cmd.type)) {
-        this.pendingCommands.push({ ...cmd, playerId: this.id });
-      }
-    }
-  }
-
-  /**
-   * Clear the command queue after pulse resolution.
-   */
-  clearCommands() {
-    this.pendingCommands = [];
-  }
-
-  /**
-   * Add resources to the player's stockpile.
+   * Add resources.
    */
   addResource(type, amount) {
     if (this.resources.hasOwnProperty(type)) {
@@ -100,15 +76,55 @@ class Player {
   }
 
   /**
-   * Calculate total resource value (for scoring/victory).
+   * Check if player can afford a cost object { wood: N, stone: N, ... }.
    */
-  getTotalResources() {
-    return this.resources.wood + this.resources.stone +
-           this.resources.iron + (this.resources.gold * 2);
+  canAfford(cost) {
+    for (const [type, amount] of Object.entries(cost)) {
+      if ((this.resources[type] || 0) < amount) return false;
+    }
+    return true;
   }
 
   /**
-   * Serialize player data for client broadcast.
+   * Spend a cost object.
+   */
+  spendCost(cost) {
+    for (const [type, amount] of Object.entries(cost)) {
+      this.resources[type] -= amount;
+    }
+  }
+
+  /**
+   * Get total resource count (for robber: discard half if > 7).
+   */
+  getTotalResources() {
+    return Object.values(this.resources).reduce((a, b) => a + b, 0);
+  }
+
+  /**
+   * Calculate victory points.
+   */
+  calculateVP() {
+    this.victoryPoints = this.villages.length + this.cities.length * 2;
+    return this.victoryPoints;
+  }
+
+  /**
+   * Set pending command.
+   */
+  setCommand(command) {
+    this.pendingCommand = { ...command, playerId: this.id };
+  }
+
+  /**
+   * Clear pending command after resolution.
+   */
+  clearCommand() {
+    this.pendingCommand = null;
+  }
+
+  /**
+   * Serialize for client broadcast.
    */
   toPublicJSON() {
     return {
@@ -120,19 +136,20 @@ class Player {
       coalitionColor: this.coalitionColor,
       coalitionImageUrl: this.coalitionImageUrl,
       playerIndex: this.playerIndex,
+      color: this.color,
       isReady: this.isReady,
       isConnected: this.isConnected,
       resources: { ...this.resources },
-      capitalHex: this.capitalHex,
-      navies: this.navies.map(n => ({ ...n })),
-      merchantShips: this.merchantShips.map(m => ({ ...m })),
-      villages: this.villages.map(v => ({ ...v })),
-      cities: this.cities.map(c => ({ ...c })),
+      victoryPoints: this.calculateVP(),
+      villages: [...this.villages],
+      cities: [...this.cities],
+      roads: [...this.roads],
+      setupPlaced: this.setupPlaced,
     };
   }
 
   /**
-   * Minimal info for lobby display.
+   * Minimal info for lobby.
    */
   toLobbyJSON() {
     return {
@@ -142,7 +159,6 @@ class Player {
       avatarUrl: this.avatarUrl,
       coalitionName: this.coalitionName,
       coalitionColor: this.coalitionColor,
-      eloPoints: this.resources ? undefined : undefined, // fetched separately
     };
   }
 }
