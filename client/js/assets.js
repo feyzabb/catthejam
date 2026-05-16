@@ -30,7 +30,7 @@ const GameAssets = (function () {
     iron_island: loadImageSync(`${BASE}/tiles_resource_islands/iron_island.png`),
     gold_island: loadImageSync(`${BASE}/tiles_resource_islands/gold_island.png`),
     food_island: loadImageSync(`${BASE}/tiles_resource_islands/resource_island_generic.png`),
-    desert_island: loadImageSync(`${BASE}/tiles_resource_islands/capital_harbor_tile_01.png`),
+    desert_island: loadImageSync(`${BASE}/tiles_resource_islands/resource_island_generic.png`),
 
     // ═══ Sea Hex Tiles ═══
     sea: loadImageSync(`${BASE}/tiles_hex/hex_tile_01.png`),

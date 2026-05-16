@@ -91,7 +91,7 @@ function renderLeaderboard(players) {
 
 // ─── SOCKET.IO ─────────────────────────────────────────────
 function connectSocket() {
-  state.socket = io();
+  state.socket = io({ transports: ['websocket'] });
   const s = state.socket;
 
   s.on('connect', () => console.log('[Socket] Connected'));
@@ -349,12 +349,59 @@ function renderGameState(gs) {
           ctx.stroke();
         }
       }
-    } else if (state.selectedAction === 'BUILD_VILLAGE') {
-      // Highlight empty vertices if building a village
-      ctx.beginPath();
-      ctx.arc(v.x, v.y, 6, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.5)';
-      ctx.fill();
+    }
+  }
+
+  // 4. Draw Highlights based on selected action or setup phase
+  const action = state.selectedAction;
+  const step = gs.setupStep;
+  const isSetup = gs.phase === 'setup';
+  
+  if (action === 'BUILD_VILLAGE' || action === 'UPGRADE_CITY' || (isSetup && step === 'village')) {
+    ctx.fillStyle = 'rgba(34, 197, 94, 0.6)'; // Green glow
+    ctx.shadowColor = '#22C55E';
+    ctx.shadowBlur = 15;
+    for (const v of gs.grid.vertices) {
+      if (!v.building && (action !== 'UPGRADE_CITY')) {
+        ctx.beginPath();
+        ctx.arc(v.x, v.y, 10, 0, Math.PI*2);
+        ctx.fill();
+      } else if (action === 'UPGRADE_CITY' && v.building && v.building.type === 'village' && v.building.playerId === state.user?.id) {
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.6)'; // Blue glow for upgrade
+        ctx.beginPath();
+        ctx.arc(v.x, v.y, 15, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(34, 197, 94, 0.6)'; // Reset
+      }
+    }
+    ctx.shadowBlur = 0;
+  }
+
+  if (action === 'BUILD_SHIP' || (isSetup && step === 'road')) {
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.8)'; // Blue glow
+    ctx.shadowColor = '#38bdf8';
+    ctx.shadowBlur = 10;
+    ctx.lineWidth = 8;
+    for (const edge of gs.grid.edges) {
+      if (!edge.road) {
+        ctx.beginPath();
+        ctx.moveTo(edge.v1.x, edge.v1.y);
+        ctx.lineTo(edge.v2.x, edge.v2.y);
+        ctx.stroke();
+      }
+    }
+    ctx.shadowBlur = 0;
+  }
+
+  if (action === 'NAVY_ATTACK' || gs.phase === 'robber') {
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.4)'; // Red glow over hexes
+    for (const hex of gs.grid.hexes) {
+      if (!hex.hasRobber) {
+        const { x, y } = getHexPixel(hex.q, hex.r);
+        ctx.beginPath();
+        ctx.arc(x, y, HEX_SIZE * 0.8, 0, Math.PI*2);
+        ctx.fill();
+      }
     }
   }
 
@@ -375,7 +422,7 @@ function handleCanvasClick(px, py) {
 
   // Find nearest vertex (for villages/cities)
   let nearestVertex = null;
-  let minDistV = 20; // 20px snap distance
+  let minDistV = 35; // Increased hit detection range
 
   for (const v of state.gameState.grid.vertices) {
     const dist = Math.hypot(px - v.x, py - v.y);
@@ -387,7 +434,7 @@ function handleCanvasClick(px, py) {
 
   // Find nearest edge (for roads)
   let nearestEdge = null;
-  let minDistE = 15;
+  let minDistE = 30; // Increased hit detection range
 
   for (const e of state.gameState.grid.edges) {
     // Distance from point to line segment
@@ -493,6 +540,19 @@ function updateUIControls(gs) {
 
   buildBtns.forEach(b => b.style.opacity = '1');
   shopPanel.classList.remove('hidden');
+
+  // Auto-select for setup phase
+  if (gs.phase === 'setup') {
+    if (gs.setupStep === 'village' && state.selectedAction !== 'BUILD_VILLAGE') {
+      state.selectedAction = 'BUILD_VILLAGE';
+      $$('.action-btn').forEach(b => b.classList.remove('active'));
+      $('#btn-build-village').classList.add('active');
+    } else if (gs.setupStep === 'road' && state.selectedAction !== 'BUILD_SHIP') {
+      state.selectedAction = 'BUILD_SHIP';
+      $$('.action-btn').forEach(b => b.classList.remove('active'));
+      $('#btn-build-ship').classList.add('active');
+    }
+  }
 
   if (gs.phase === 'roll') {
     rollBtn.style.display = 'flex';
