@@ -113,6 +113,7 @@ function connectSocket() {
     state.myPlayerIndex = me ? me.playerIndex : -1;
     showScreen('game');
     renderGameState(gameState);
+    updateUIControls(gameState);
     addEventLog('Game Started! Setup Phase.');
   });
 
@@ -214,7 +215,7 @@ function initGameCanvas() {
   const wrap = $('#canvas-wrap');
   canvas.width = wrap.clientWidth;
   canvas.height = wrap.clientHeight;
-  camera = { x: canvas.width / 2, y: canvas.height / 2, zoom: 1.2 };
+  camera = { x: canvas.width / 2, y: canvas.height / 2.5, zoom: 1.0 };
 
   let dragging = false, lastX, lastY;
   canvas.addEventListener('mousedown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
