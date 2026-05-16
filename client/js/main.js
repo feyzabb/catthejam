@@ -287,16 +287,43 @@ function renderGameState(gs) {
     }
   }
 
-  // 2. Draw Edges (Roads)
-  ctx.lineWidth = 6;
+  // 2. Draw Edges (Merchant Ships)
   for (const edge of gs.grid.edges) {
     if (edge.road) {
       const p = gs.players.find(pl => pl.id === edge.road.playerId);
-      ctx.strokeStyle = p ? p.color : '#fff';
-      ctx.beginPath();
-      ctx.moveTo(edge.v1.x, edge.v1.y);
-      ctx.lineTo(edge.v2.x, edge.v2.y);
-      ctx.stroke();
+      
+      // Select the right merchant ship asset based on player color/index
+      let shipImg = GameAssets.merchant_blue;
+      if (p) {
+        if (p.color.includes('EF4444')) shipImg = GameAssets.merchant_red;
+        else if (p.color.includes('22C55E')) shipImg = GameAssets.merchant_green;
+        else if (p.color.includes('A855F7')) shipImg = GameAssets.merchant_purple;
+      }
+      
+      if (shipImg && shipImg.complete) {
+        const dx = edge.v2.x - edge.v1.x;
+        const dy = edge.v2.y - edge.v1.y;
+        const angle = Math.atan2(dy, dx);
+        const midX = (edge.v1.x + edge.v2.x) / 2;
+        const midY = (edge.v1.y + edge.v2.y) / 2;
+        
+        ctx.save();
+        ctx.translate(midX, midY);
+        // Add 90 degrees (Math.PI / 2) because ship assets usually point upwards
+        ctx.rotate(angle + Math.PI / 2);
+        const shipWidth = 32;
+        const shipHeight = 48;
+        ctx.drawImage(shipImg, -shipWidth / 2, -shipHeight / 2, shipWidth, shipHeight);
+        ctx.restore();
+      } else {
+        // Fallback to line
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = p ? p.color : '#fff';
+        ctx.beginPath();
+        ctx.moveTo(edge.v1.x, edge.v1.y);
+        ctx.lineTo(edge.v2.x, edge.v2.y);
+        ctx.stroke();
+      }
     }
   }
 

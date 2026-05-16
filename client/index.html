@@ -155,6 +155,17 @@
     <!-- Game Canvas -->
     <canvas id="game-canvas"></canvas>
 
+    <!-- Build Shop / Crafting Panel -->
+    <div id="build-shop-panel" class="hidden" style="position: absolute; right: 20px; top: 100px; width: 250px; background: url('/deep_sea_pulse_separate_png_only/ui_panels_buttons__build_shop_panel.png') no-repeat center/cover; padding: 20px; border-radius: 12px; color: #fff; z-index: 20;">
+      <h3 style="margin-bottom: 15px; font-size: 1.1rem; text-align: center; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">Crafting</h3>
+      <ul style="list-style: none; font-size: 0.85rem; line-height: 1.6; text-shadow: 0 1px 2px rgba(0,0,0,0.8);">
+        <li><strong>Merchant Ship:</strong> 1🪵, 1🪨</li>
+        <li><strong>Village:</strong> 1🪵, 1🪨, 1🍞, 1🪙</li>
+        <li><strong>City:</strong> 3⛏️, 2🍞</li>
+        <li><strong>Navy Attack:</strong> 1⛏️, 1🍞, 1🪙</li>
+      </ul>
+    </div>
+
     <!-- Bottom Action Bar -->
     <div class="game-hud-bottom" id="hud-actions" style="display: none;">
       <div class="action-bar" id="action-bar">
@@ -162,21 +173,25 @@
           <span class="action-icon">🎲</span>
           <span class="action-label">Roll Dice</span>
         </button>
-        <button class="action-btn" id="btn-build-road" title="Build Dock/Road (1🪵 + 1🪨)">
-          <span class="action-icon"></span>
-          <span class="action-label">Dock</span>
+        <button class="action-btn" id="btn-build-ship" title="Build Merchant Ship (1🪵 + 1🪨)">
+          <span class="action-icon">🚢</span>
+          <span class="action-label">Ticaret Gemisi</span>
         </button>
-        <button class="action-btn" id="btn-build-village" title="Build Village (1🪵 + 1🪨 + 1⚙️ + 1🥖)">
-          <span class="action-icon"></span>
-          <span class="action-label">Village</span>
+        <button class="action-btn" id="btn-build-village" title="Build Village (1🪵 + 1🪨 + 1🍞 + 1🪙)">
+          <span class="action-icon">🏘️</span>
+          <span class="action-label">Köy Kur</span>
         </button>
-        <button class="action-btn" id="btn-upgrade-city" title="Upgrade City (3⚙️ + 2🪙)">
-          <span class="action-icon"></span>
-          <span class="action-label">City</span>
+        <button class="action-btn" id="btn-upgrade-city" title="Upgrade City (3⛏️ + 2🍞)">
+          <span class="action-icon">🏰</span>
+          <span class="action-label">Şehre Yükselt</span>
         </button>
-        <button class="action-btn end-turn" id="btn-end-turn" style="margin-left: 20px;">
-          <span class="action-icon">⏩</span>
-          <span class="action-label">End Turn</span>
+        <button class="action-btn" id="btn-navy-attack" title="Send Navy Attack (1⛏️ + 1🍞 + 1🪙)">
+          <span class="action-icon">⚔️</span>
+          <span class="action-label">Donanma Gönder</span>
+        </button>
+        <button class="action-btn end-turn" id="btn-end-turn" style="display: none;">
+          <span class="action-icon">⏳</span>
+          <span class="action-label">Turu Bitir</span>
         </button>
       </div>
     </div>

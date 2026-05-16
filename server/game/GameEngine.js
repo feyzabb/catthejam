@@ -16,8 +16,9 @@ const { v4: uuidv4 } = require('uuid');
 // Building costs
 const COSTS = {
   road: { wood: 1, stone: 1 },
-  village: { wood: 1, stone: 1, iron: 1, food: 1 },
-  city: { iron: 3, gold: 2 },
+  village: { wood: 1, stone: 1, food: 1, gold: 1 },
+  city: { iron: 3, food: 2 },
+  navy_attack: { iron: 1, food: 1, gold: 1 },
 };
 
 class GameEngine {
@@ -131,6 +132,8 @@ class GameEngine {
         return this._handleMoveRobber(player, command, players);
       case 'END_TURN':
         return this._handleEndTurn(player, players);
+      case 'BUY_NAVY_ATTACK':
+        return this._handleBuyNavyAttack(player, players);
       default:
         return { success: false, error: 'Unknown command' };
     }
@@ -253,6 +256,20 @@ class GameEngine {
     this.events.push({ type: 'CITY_UPGRADED', playerId: player.id, vertexId });
 
     this._checkVictory(player, players);
+    this._broadcastState(players);
+    return { success: true };
+  }
+
+  _handleBuyNavyAttack(player, players) {
+    if (this.phase !== 'build') return { success: false, error: 'Not in build phase' };
+
+    if (!player.canAfford(COSTS.navy_attack)) return { success: false, error: 'Cannot afford navy attack' };
+
+    player.spendCost(COSTS.navy_attack);
+    this.events.push({ type: 'NAVY_ATTACK_BOUGHT', playerId: player.id });
+    
+    // Change phase to robber so the player can place the Navy (Robber)
+    this.phase = 'robber';
     this._broadcastState(players);
     return { success: true };
   }
