@@ -213,9 +213,19 @@ function initGameCanvas() {
   canvas = $('#game-canvas');
   ctx = canvas.getContext('2d');
   const wrap = $('#canvas-wrap');
-  canvas.width = wrap.clientWidth;
-  canvas.height = wrap.clientHeight;
-  camera = { x: canvas.width / 2, y: canvas.height / 2.5, zoom: 1.0 };
+
+  function resizeCanvas() {
+    const rect = wrap.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+  }
+
+  // Delay to let flex layout settle
+  requestAnimationFrame(() => {
+    resizeCanvas();
+    camera = { x: canvas.width / 2, y: canvas.height / 2.5, zoom: 1.0 };
+    if (state.gameState) renderGameState(state.gameState);
+  });
 
   let dragging = false, lastX, lastY;
   canvas.addEventListener('mousedown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
@@ -237,15 +247,14 @@ function initGameCanvas() {
 
   canvas.addEventListener('click', (e) => {
     if (dragging) return;
-    const rect = canvas.getBoundingClientRect();
-    const px = (e.clientX - rect.left - camera.x) / camera.zoom;
-    const py = (e.clientY - rect.top - camera.y) / camera.zoom;
+    const r = canvas.getBoundingClientRect();
+    const px = (e.clientX - r.left - camera.x) / camera.zoom;
+    const py = (e.clientY - r.top - camera.y) / camera.zoom;
     handleCanvasClick(px, py);
   });
 
   window.addEventListener('resize', () => {
-    canvas.width = wrap.clientWidth;
-    canvas.height = wrap.clientHeight;
+    resizeCanvas();
     if (state.gameState) renderGameState(state.gameState);
   });
 }
