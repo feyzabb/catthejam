@@ -402,20 +402,44 @@ function handleCanvasClick(px, py) {
     }
   }
 
+  // Find nearest hex (for navy attack / robber)
+  let nearestHex = null;
+  let minDistH = HEX_SIZE * 0.8;
+  for (const h of state.gameState.grid.hexes) {
+    const {x, y} = getHexPixel(h.q, h.r);
+    const dist = Math.hypot(px - x, py - y);
+    if (dist < minDistH) {
+      minDistH = dist;
+      nearestHex = h;
+    }
+  }
+
   // Send command based on action
   if (state.selectedAction === 'BUILD_VILLAGE' && nearestVertex) {
     state.socket.emit('game:command', { type: 'PLACE_VILLAGE', vertexId: nearestVertex });
   } 
-  else if (state.selectedAction === 'BUILD_ROAD' && nearestEdge) {
+  else if (state.selectedAction === 'BUILD_SHIP' && nearestEdge) {
     state.socket.emit('game:command', { type: 'PLACE_ROAD', edgeId: nearestEdge });
   }
   else if (state.selectedAction === 'UPGRADE_CITY' && nearestVertex) {
     state.socket.emit('game:command', { type: 'UPGRADE_CITY', vertexId: nearestVertex });
   }
+  else if (state.selectedAction === 'NAVY_ATTACK' && nearestHex) {
+    // If it's robber phase, move robber
+    if (state.gameState.phase === 'robber') {
+      state.socket.emit('game:command', { type: 'MOVE_ROBBER', q: nearestHex.q, r: nearestHex.r });
+    } else {
+      // If buying a new navy attack
+      state.socket.emit('game:command', { type: 'BUY_NAVY_ATTACK' });
+      // We will place it when the phase shifts to robber automatically
+    }
+  }
 
-  // Deselect after click
-  state.selectedAction = null;
-  $$('.action-btn').forEach(b => b.classList.remove('active'));
+  // Deselect after click (unless we just bought a navy attack and need to place it)
+  if (state.selectedAction !== 'NAVY_ATTACK' || state.gameState.phase === 'robber') {
+    state.selectedAction = null;
+    $$('.action-btn').forEach(b => b.classList.remove('active'));
+  }
   renderGameState(state.gameState);
 }
 
@@ -455,22 +479,25 @@ function updateUIControls(gs) {
   $('#hud-actions').style.display = 'flex';
   
   const rollBtn = $('#btn-roll-dice');
-  const buildBtns = [$('#btn-build-road'), $('#btn-build-village'), $('#btn-upgrade-city')];
+  const buildBtns = [$('#btn-build-ship'), $('#btn-build-village'), $('#btn-upgrade-city'), $('#btn-navy-attack')];
   const endBtn = $('#btn-end-turn');
+  const shopPanel = $('#build-shop-panel');
 
   if (!isMyTurn) {
     rollBtn.style.display = 'none';
     buildBtns.forEach(b => b.style.opacity = '0.5');
     endBtn.style.display = 'none';
+    shopPanel.classList.add('hidden');
     return;
   }
 
   buildBtns.forEach(b => b.style.opacity = '1');
+  shopPanel.classList.remove('hidden');
 
   if (gs.phase === 'roll') {
     rollBtn.style.display = 'flex';
     endBtn.style.display = 'none';
-  } else if (gs.phase === 'build' || gs.phase === 'setup') {
+  } else if (gs.phase === 'build' || gs.phase === 'setup' || gs.phase === 'robber') {
     rollBtn.style.display = 'none';
     endBtn.style.display = 'flex';
   } else {
@@ -494,9 +521,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Map action buttons
   const actionBtns = {
-    'btn-build-road': 'BUILD_ROAD',
+    'btn-build-ship': 'BUILD_SHIP',
     'btn-build-village': 'BUILD_VILLAGE',
     'btn-upgrade-city': 'UPGRADE_CITY',
+    'btn-navy-attack': 'NAVY_ATTACK',
   };
 
   Object.entries(actionBtns).forEach(([btnId, action]) => {
