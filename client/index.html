@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Deep Sea Pulse: Coalition Wars — A 2D Multiplayer Hex Strategy Game for 42 Network">
+  <title>Deep Sea Pulse: Coalition Wars</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- ═══ LOGIN SCREEN ═══ -->
+  <div id="screen-login" class="screen active">
+    <div class="login-container">
+      <div class="login-bg-effects">
+        <div class="bubble bubble-1"></div>
+        <div class="bubble bubble-2"></div>
+        <div class="bubble bubble-3"></div>
+        <div class="wave wave-1"></div>
+        <div class="wave wave-2"></div>
+      </div>
+      <div class="login-card">
+        <div class="login-logo">
+          <div class="logo-icon">🌊</div>
+          <h1>Deep Sea Pulse</h1>
+          <p class="login-subtitle">Coalition Wars</p>
+        </div>
+        <p class="login-desc">4-Player Hex Strategy for the 42 Network</p>
+        <div class="direct-login-form">
+          <input type="text" id="intra-login-input" placeholder="Your 42 Login..." class="input-login" autocomplete="off" spellcheck="false" />
+          <div id="login-error" class="login-error" style="display: none;"></div>
+          <button class="btn-42-login" id="btn-login" style="justify-content: center; width: 100%;">
+            <svg class="icon-42" viewBox="0 0 137.52 96.5" width="28" height="20">
+              <polygon points="76.96 0 76.96 30.87 107.8 30.87 107.8 61.73 76.96 61.73 45.12 61.73 45.12 96.5 14.28 96.5 14.28 61.73 0 61.73 0 30.87 45.12 30.87 45.12 0 76.96 0" fill="currentColor"/>
+              <polygon points="137.52 0 137.52 30.87 107.8 30.87 107.8 0 137.52 0" fill="currentColor"/>
+              <polygon points="137.52 61.73 137.52 96.5 107.8 96.5 107.8 61.73 137.52 61.73" fill="currentColor"/>
+            </svg>
+            Enter Game
+          </button>
+        </div>
+        <p class="login-footer">Game Jam 2025 · 42 Network</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ LOBBY SCREEN ═══ -->
+  <div id="screen-lobby" class="screen">
+    <header class="lobby-header">
+      <div class="header-left">
+        <span class="logo-sm">🌊</span>
+        <h2>Deep Sea Pulse</h2>
+      </div>
+      <div class="header-right">
+        <div class="user-badge" id="user-badge">
+          <img id="user-avatar" class="avatar" src="" alt="avatar">
+          <span id="user-login" class="user-name"></span>
+          <span id="user-elo" class="user-elo"></span>
+        </div>
+        <a href="/auth/42/logout" class="btn-logout" id="btn-logout">Logout</a>
+      </div>
+    </header>
+
+    <main class="lobby-main">
+      <!-- Leaderboard Panel -->
+      <section class="panel panel-leaderboard">
+        <div class="panel-header">
+          <h3>🏆 Global Leaderboard</h3>
+        </div>
+        <div class="panel-body">
+          <div id="leaderboard-list" class="leaderboard-list">
+            <div class="loading-spinner">Loading...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Rooms Panel -->
+      <section class="panel panel-rooms">
+        <div class="panel-header">
+          <h3>🚢 Game Rooms</h3>
+          <button class="btn-create-room" id="btn-create-room">+ Create Room</button>
+        </div>
+        <div class="panel-body">
+          <div id="room-list" class="room-list">
+            <div class="empty-state">No rooms available. Create one!</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Room Lobby (visible when inside a room) -->
+      <section class="panel panel-room-lobby hidden" id="panel-room-lobby">
+        <div class="panel-header">
+          <h3 id="room-lobby-title">Room Lobby</h3>
+          <button class="btn-leave" id="btn-leave-room">Leave</button>
+        </div>
+        <div class="panel-body">
+          <div id="room-players" class="room-players"></div>
+          <div class="room-status">
+            <p id="room-status-text">Waiting for players...</p>
+            <div class="player-slots">
+              <div class="slot" id="slot-0"><div class="slot-empty">?</div></div>
+              <div class="slot" id="slot-1"><div class="slot-empty">?</div></div>
+              <div class="slot" id="slot-2"><div class="slot-empty">?</div></div>
+              <div class="slot" id="slot-3"><div class="slot-empty">?</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Online counter -->
+    <footer class="lobby-footer">
+      <span id="online-count">0 players online</span>
+    </footer>
+  </div>
+
+  <!-- ═══ GAME SCREEN ═══ -->
+  <div id="screen-game" class="screen">
+    <!-- Top HUD -->
+    <div class="game-hud-top">
+      <div class="hud-resources" id="hud-resources">
+        <div class="resource" id="res-wood"><span class="res-icon">🪵</span> <span class="res-val">0</span></div>
+        <div class="resource" id="res-stone"><span class="res-icon">🪨</span> <span class="res-val">0</span></div>
+        <div class="resource" id="res-iron"><span class="res-icon">⚙️</span> <span class="res-val">0</span></div>
+        <div class="resource" id="res-gold"><span class="res-icon">🪙</span> <span class="res-val">0</span></div>
+      </div>
+      <div class="hud-pulse">
+        <div class="pulse-label">PULSE</div>
+        <div class="pulse-number" id="pulse-number">1</div>
+        <div class="pulse-timer" id="pulse-timer">20</div>
+      </div>
+      <div class="hud-players" id="hud-players"></div>
+    </div>
+
+    <!-- Game Canvas -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Bottom Action Bar -->
+    <div class="game-hud-bottom">
+      <div class="action-bar" id="action-bar">
+        <button class="action-btn" id="btn-build-navy" title="Build Navy (5🪵 + 3⚙️)">
+          <span class="action-icon">⛵</span>
+          <span class="action-label">Build Navy</span>
+        </button>
+        <button class="action-btn" id="btn-place-merchant" title="Place Merchant (2🪵)">
+          <span class="action-icon">🚢</span>
+          <span class="action-label">Merchant</span>
+        </button>
+        <button class="action-btn" id="btn-build-village" title="Build Village (5🪵 + 3🪨)">
+          <span class="action-icon">🏘️</span>
+          <span class="action-label">Village</span>
+        </button>
+        <button class="action-btn" id="btn-upgrade-city" title="Upgrade City (10🪨 + 5⚙️)">
+          <span class="action-icon">🏰</span>
+          <span class="action-label">City</span>
+        </button>
+      </div>
+      <div class="command-queue" id="command-queue">
+        <span class="queue-label">Commands: </span>
+        <span class="queue-count" id="queue-count">0</span>
+      </div>
+    </div>
+
+    <!-- Event Log -->
+    <div class="game-event-log" id="event-log"></div>
+  </div>
+
+  <!-- Create Room Modal -->
+  <div class="modal-overlay hidden" id="modal-create-room">
+    <div class="modal-card">
+      <h3>Create Game Room</h3>
+      <input type="text" id="input-room-name" placeholder="Room name..." maxlength="30" class="input-room">
+      <div class="modal-actions">
+        <button class="btn-modal btn-cancel" id="btn-cancel-create">Cancel</button>
+        <button class="btn-modal btn-confirm" id="btn-confirm-create">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Over Modal -->
+  <div class="modal-overlay hidden" id="modal-game-over">
+    <div class="modal-card modal-results">
+      <h3>🏆 Game Over</h3>
+      <div id="results-list" class="results-list"></div>
+      <button class="btn-modal btn-confirm" id="btn-back-lobby">Back to Lobby</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="js/assets.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
