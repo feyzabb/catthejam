@@ -127,77 +127,119 @@
   <div id="screen-game" class="screen">
     <!-- Top HUD -->
     <div class="game-hud-top">
+      <!-- Resource Panel (Left) -->
       <div class="hud-resources" id="hud-resources">
-        <div class="resource" id="res-wood"><span class="res-icon"></span> <span class="res-val">0</span></div>
-        <div class="resource" id="res-stone"><span class="res-icon"></span> <span class="res-val">0</span></div>
-        <div class="resource" id="res-iron"><span class="res-icon"></span> <span class="res-val">0</span></div>
-        <div class="resource" id="res-gold"><span class="res-icon"></span> <span class="res-val">0</span></div>
-        <div class="resource" id="res-food"><span class="res-icon"></span> <span class="res-val">0</span></div>
-      </div>
-      
-      <!-- Catan Status Info (Replaces Pulse Timer) -->
-      <div class="hud-status" id="hud-status">
-        <div class="status-phase" id="status-phase">WAITING...</div>
-        <div class="status-turn" id="status-turn"></div>
-      </div>
-      
-      <!-- Dice Display -->
-      <div class="hud-dice hidden" id="hud-dice">
-        <div class="dice-box">
-          <div class="die" id="die1">1</div>
-          <div class="die" id="die2">1</div>
+        <div class="resource" id="res-wood">
+          <span class="res-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/wood_icon_large.png" alt="Wood"></span>
+          <span class="res-val">0</span>
+          <span class="res-label">Wood</span>
+        </div>
+        <div class="resource" id="res-stone">
+          <span class="res-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/stone_icon_large.png" alt="Stone"></span>
+          <span class="res-val">0</span>
+          <span class="res-label">Stone</span>
+        </div>
+        <div class="resource" id="res-iron">
+          <span class="res-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/iron_icon_large.png" alt="Iron"></span>
+          <span class="res-val">0</span>
+          <span class="res-label">Iron</span>
+        </div>
+        <div class="resource" id="res-gold">
+          <span class="res-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/gold_icon_large.png" alt="Gold"></span>
+          <span class="res-val">0</span>
+          <span class="res-label">Gold</span>
+        </div>
+        <div class="resource" id="res-food">
+          <span class="res-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/food_counter.png" alt="Food"></span>
+          <span class="res-val">0</span>
+          <span class="res-label">Food</span>
         </div>
       </div>
 
+      <!-- Phase / Turn Status (Center) -->
+      <div class="hud-status" id="hud-status">
+        <div class="status-phase" id="status-phase">WAITING</div>
+        <div class="status-turn" id="status-turn"></div>
+      </div>
+
+      <!-- Player Cards (Right) -->
       <div class="hud-players" id="hud-players"></div>
     </div>
 
-    <!-- Game Canvas -->
-    <canvas id="game-canvas"></canvas>
-
-    <!-- Build Shop / Crafting Panel -->
-    <div id="build-shop-panel" class="hidden" style="position: absolute; right: 20px; top: 100px; width: 250px; background: url('/deep_sea_pulse_separate_png_only/ui_panels_buttons__build_shop_panel.png') no-repeat center/cover; padding: 20px; border-radius: 12px; color: #fff; z-index: 20;">
-      <h3 style="margin-bottom: 15px; font-size: 1.1rem; text-align: center; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">Crafting</h3>
-      <ul style="list-style: none; font-size: 0.85rem; line-height: 1.6; text-shadow: 0 1px 2px rgba(0,0,0,0.8);">
-        <li><strong>Merchant Ship:</strong> 1🪵, 1🪨</li>
-        <li><strong>Village:</strong> 1🪵, 1🪨, 1🍞, 1🪙</li>
-        <li><strong>City:</strong> 3⛏️, 2🍞</li>
-        <li><strong>Navy Attack:</strong> 1⛏️, 1🍞, 1🪙</li>
-      </ul>
+    <!-- Turn Timer Bar -->
+    <div class="turn-timer" id="turn-timer">
+      <div class="turn-timer-bar" id="turn-timer-bar" style="width:100%"></div>
     </div>
 
-    <!-- Bottom Action Bar -->
-    <div class="game-hud-bottom" id="hud-actions" style="display: none;">
-      <div class="action-bar" id="action-bar">
-        <button class="action-btn" id="btn-roll-dice" style="display: none;">
-          <span class="action-icon">🎲</span>
-          <span class="action-label">Roll Dice</span>
+    <!-- Canvas Wrapper -->
+    <div class="canvas-wrap" id="canvas-wrap">
+      <canvas id="game-canvas"></canvas>
+
+      <!-- Dice Overlay (shown on roll phase or after roll) -->
+      <div class="dice-overlay hidden" id="dice-overlay">
+        <div class="dice-box">
+          <div class="die" id="die1">?</div>
+          <div class="die red-die" id="die2">?</div>
+        </div>
+        <div class="dice-total" id="dice-total"></div>
+      </div>
+
+      <!-- Roll Dice Button (shown during roll phase) -->
+      <button class="btn-roll hidden" id="btn-roll-dice" style="position:absolute;top:80px;left:50%;transform:translateX(-50%);z-index:25;">🎲 Roll Dice</button>
+
+      <!-- Right Action Panel -->
+      <div class="action-panel hidden" id="action-panel">
+        <button class="action-btn" id="btn-build-ship" title="1 Wood + 1 Stone">
+          <span class="action-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/connection_icon.png" alt="Road"></span>
+          <span><span class="action-label">Yol İnşa Et</span><br><span class="action-cost">1🪵 1🪨</span></span>
         </button>
-        <button class="action-btn" id="btn-build-ship" title="Build Merchant Ship (1🪵 + 1🪨)">
-          <span class="action-icon">🚢</span>
-          <span class="action-label">Ticaret Gemisi</span>
+        <button class="action-btn" id="btn-build-village" title="1 Wood + 1 Stone + 1 Food + 1 Gold">
+          <span class="action-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/build_icon.png" alt="Village"></span>
+          <span><span class="action-label">Köy Kur</span><br><span class="action-cost">1🪵 1🪨 1🍞 1🪙</span></span>
         </button>
-        <button class="action-btn" id="btn-build-village" title="Build Village (1🪵 + 1🪨 + 1🍞 + 1🪙)">
-          <span class="action-icon">🏘️</span>
-          <span class="action-label">Köy Kur</span>
+        <button class="action-btn" id="btn-upgrade-city" title="3 Iron + 2 Food">
+          <span class="action-icon"><img src="/deep_sea_pulse_separate_png_only/ui_panels_buttons/button_upgrade.png" alt="City"></span>
+          <span><span class="action-label">Şehre Yükselt</span><br><span class="action-cost">3⛏️ 2🍞</span></span>
         </button>
-        <button class="action-btn" id="btn-upgrade-city" title="Upgrade City (3⛏️ + 2🍞)">
-          <span class="action-icon">🏰</span>
-          <span class="action-label">Şehre Yükselt</span>
+        <button class="action-btn" id="btn-trade" title="Trade Resources">
+          <span class="action-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/trade_icon.png" alt="Trade"></span>
+          <span><span class="action-label">Takas</span></span>
         </button>
-        <button class="action-btn" id="btn-navy-attack" title="Send Navy Attack (1⛏️ + 1🍞 + 1🪙)">
-          <span class="action-icon">⚔️</span>
-          <span class="action-label">Donanma Gönder</span>
+        <button class="action-btn" id="btn-navy-attack" title="1 Iron + 1 Food + 1 Gold">
+          <span class="action-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/destroy_icon.png" alt="Navy"></span>
+          <span><span class="action-label">Donanma</span><br><span class="action-cost">1⛏️ 1🍞 1🪙</span></span>
         </button>
-        <button class="action-btn end-turn" id="btn-end-turn" style="display: none;">
-          <span class="action-icon">⏳</span>
+        <button class="action-btn end-turn" id="btn-end-turn">
+          <span class="action-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/command_confirm_icon.png" alt="End"></span>
           <span class="action-label">Turu Bitir</span>
         </button>
       </div>
-    </div>
 
-    <!-- Event Log -->
-    <div class="game-event-log" id="event-log"></div>
+      <!-- Event Log -->
+      <div class="game-event-log" id="event-log"></div>
+    </div>
+  </div>
+
+  <!-- Trade Modal -->
+  <div class="trade-modal hidden" id="modal-trade">
+    <div class="trade-card">
+      <h3>⚓ Takas Teklifi</h3>
+      <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;text-align:center;">4:1 Bank Trade — Select resource to give and receive</p>
+      <div style="display:flex;gap:16px;">
+        <div style="flex:1;">
+          <p style="font-size:0.75rem;font-weight:700;margin-bottom:6px;color:var(--accent-red);">GIVE (4x)</p>
+          <div id="trade-give" style="display:flex;flex-direction:column;gap:4px;"></div>
+        </div>
+        <div style="flex:1;">
+          <p style="font-size:0.75rem;font-weight:700;margin-bottom:6px;color:var(--accent-green);">RECEIVE (1x)</p>
+          <div id="trade-receive" style="display:flex;flex-direction:column;gap:4px;"></div>
+        </div>
+      </div>
+      <div class="trade-actions">
+        <button class="btn-modal btn-cancel" id="btn-trade-cancel">Cancel</button>
+        <button class="btn-modal btn-confirm" id="btn-trade-confirm">Trade</button>
+      </div>
+    </div>
   </div>
 
   <!-- Create Room Modal -->

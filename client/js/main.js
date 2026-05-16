@@ -134,12 +134,18 @@ function connectSocket() {
   });
 
   s.on('game:dice', (data) => {
-    const hudDice = $('#hud-dice');
-    hudDice.classList.remove('hidden');
-    $('#die1').textContent = data.dice[0];
-    $('#die2').textContent = data.dice[1];
+    const overlay = $('#dice-overlay');
+    const d1 = $('#die1'), d2 = $('#die2');
+    overlay.classList.remove('hidden');
+    d1.classList.add('rolling'); d2.classList.add('rolling');
+    d1.textContent = '?'; d2.textContent = '?';
+    setTimeout(() => {
+      d1.classList.remove('rolling'); d2.classList.remove('rolling');
+      d1.textContent = data.dice[0]; d2.textContent = data.dice[1];
+      $('#dice-total').textContent = `Total: ${data.total}`;
+    }, 500);
     addEventLog(`🎲 Rolled a ${data.total}!`);
-    setTimeout(() => hudDice.classList.add('hidden'), 3000);
+    setTimeout(() => overlay.classList.add('hidden'), 3500);
   });
 
   s.on('game:ended', ({ placements }) => {
@@ -205,8 +211,9 @@ let canvas, ctx, camera;
 function initGameCanvas() {
   canvas = $('#game-canvas');
   ctx = canvas.getContext('2d');
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight - 150;
+  const wrap = $('#canvas-wrap');
+  canvas.width = wrap.clientWidth;
+  canvas.height = wrap.clientHeight;
   camera = { x: canvas.width / 2, y: canvas.height / 2, zoom: 1.2 };
 
   let dragging = false, lastX, lastY;
@@ -236,8 +243,8 @@ function initGameCanvas() {
   });
 
   window.addEventListener('resize', () => {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight - 150;
+    canvas.width = wrap.clientWidth;
+    canvas.height = wrap.clientHeight;
     if (state.gameState) renderGameState(state.gameState);
   });
 }
@@ -511,35 +518,53 @@ function updateHUD(gs) {
   }
 
   $('#status-phase').textContent = `${gs.phase.toUpperCase()} PHASE`;
-  
   const currentPlayer = gs.players.find(p => p.id === gs.currentPlayerId);
   $('#status-turn').textContent = currentPlayer ? `${currentPlayer.login}'s Turn` : '';
 
-  $('#hud-players').innerHTML = gs.players.map(p => `
-    <div class="hud-player" style="border-color:${p.color}">
-      <span>${p.login} (${p.victoryPoints} VP)</span>
-    </div>`).join('');
+  // Styled player cards
+  $('#hud-players').innerHTML = gs.players.map(p => {
+    const isActive = p.id === gs.currentPlayerId;
+    const totalCards = Object.values(p.resources).reduce((a,b) => a+b, 0);
+    return `<div class="hud-player ${isActive ? 'active-turn' : ''}" style="border-color:${p.color}">
+      <span class="p-name">${p.login}</span>
+      <span class="p-vp">⭐${p.victoryPoints}</span>
+      <span class="p-cards">🃏${totalCards}</span>
+    </div>`;
+  }).join('');
+
+  // Turn timer
+  if (gs.timeRemaining != null) {
+    const maxTime = 60;
+    const pct = Math.max(0, (gs.timeRemaining / maxTime) * 100);
+    const bar = $('#turn-timer-bar');
+    bar.style.width = pct + '%';
+    bar.classList.toggle('warning', pct < 25);
+  }
+
+  // Build phase glow
+  const wrap = $('#canvas-wrap');
+  if (wrap) wrap.classList.toggle('build-glow', gs.phase === 'build');
 }
 
 function updateUIControls(gs) {
   const isMyTurn = gs.currentPlayerId === state.user.id;
-  $('#hud-actions').style.display = 'flex';
-  
+  const panel = $('#action-panel');
   const rollBtn = $('#btn-roll-dice');
-  const buildBtns = [$('#btn-build-ship'), $('#btn-build-village'), $('#btn-upgrade-city'), $('#btn-navy-attack')];
   const endBtn = $('#btn-end-turn');
-  const shopPanel = $('#build-shop-panel');
+  const allBtns = panel.querySelectorAll('.action-btn:not(.end-turn)');
+
+  // Show action panel once game starts
+  panel.classList.remove('hidden');
 
   if (!isMyTurn) {
-    rollBtn.style.display = 'none';
-    buildBtns.forEach(b => b.style.opacity = '0.5');
-    endBtn.style.display = 'none';
-    shopPanel.classList.add('hidden');
+    rollBtn.classList.add('hidden');
+    allBtns.forEach(b => b.classList.add('disabled'));
+    endBtn.classList.add('disabled');
     return;
   }
 
-  buildBtns.forEach(b => b.style.opacity = '1');
-  shopPanel.classList.remove('hidden');
+  allBtns.forEach(b => b.classList.remove('disabled'));
+  endBtn.classList.remove('disabled');
 
   // Auto-select for setup phase
   if (gs.phase === 'setup') {
@@ -555,14 +580,14 @@ function updateUIControls(gs) {
   }
 
   if (gs.phase === 'roll') {
-    rollBtn.style.display = 'flex';
-    endBtn.style.display = 'none';
+    rollBtn.classList.remove('hidden');
+    endBtn.classList.add('hidden');
   } else if (gs.phase === 'build' || gs.phase === 'setup' || gs.phase === 'robber') {
-    rollBtn.style.display = 'none';
-    endBtn.style.display = 'flex';
+    rollBtn.classList.add('hidden');
+    endBtn.classList.remove('hidden');
   } else {
-    rollBtn.style.display = 'none';
-    endBtn.style.display = 'none';
+    rollBtn.classList.add('hidden');
+    endBtn.classList.add('hidden');
   }
 }
 
@@ -592,7 +617,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btn) {
       btn.addEventListener('click', () => {
         if (state.gameState?.currentPlayerId !== state.user.id) return;
-        
         $$('.action-btn').forEach(b => b.classList.remove('active'));
         if (state.selectedAction === action) {
           state.selectedAction = null;
@@ -600,20 +624,30 @@ document.addEventListener('DOMContentLoaded', () => {
           state.selectedAction = action;
           btn.classList.add('active');
         }
-        if (state.gameState) renderGameState(state.gameState); // re-render to show highlights
+        if (state.gameState) renderGameState(state.gameState);
       });
     }
   });
 
-  // End turn & Roll
+  // Roll dice
   $('#btn-roll-dice')?.addEventListener('click', () => {
     state.socket.emit('game:command', { type: 'ROLL_DICE' });
   });
-  
+
+  // End turn
   $('#btn-end-turn')?.addEventListener('click', () => {
     state.socket.emit('game:command', { type: 'END_TURN' });
     state.selectedAction = null;
     $$('.action-btn').forEach(b => b.classList.remove('active'));
+  });
+
+  // Trade modal
+  $('#btn-trade')?.addEventListener('click', () => {
+    if (state.gameState?.currentPlayerId !== state.user.id) return;
+    $('#modal-trade').classList.remove('hidden');
+  });
+  $('#btn-trade-cancel')?.addEventListener('click', () => {
+    $('#modal-trade').classList.add('hidden');
   });
 
   // Login
