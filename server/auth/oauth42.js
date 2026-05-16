@@ -152,69 +152,88 @@ router.post('/direct-login', async (req, res) => {
 
   try {
     let userData, coalition;
-    
-    // Check if we have real credentials
+    let fetched = false;
+
+    // Try 42 API if credentials exist
     if (config.FORTYTWO.CLIENT_ID && config.FORTYTWO.CLIENT_SECRET) {
-      // 1. Get an App Token using Client Credentials
-      const tokenResponse = await fetch(config.FORTYTWO.TOKEN_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          grant_type: 'client_credentials',
-          client_id: config.FORTYTWO.CLIENT_ID,
-          client_secret: config.FORTYTWO.CLIENT_SECRET,
-        }),
-      });
+      try {
+        const tokenResponse = await fetch(config.FORTYTWO.TOKEN_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            grant_type: 'client_credentials',
+            client_id: config.FORTYTWO.CLIENT_ID,
+            client_secret: config.FORTYTWO.CLIENT_SECRET,
+          }),
+          timeout: 5000,
+        });
 
-      const tokenData = await tokenResponse.json();
-      if (!tokenData.access_token) {
-        console.error('[OAuth] Client Credentials failed:', tokenData);
-        return res.status(500).json({ error: 'Backend Auth Failed' });
-      }
+        const tokenData = await tokenResponse.json();
+        if (tokenData.access_token) {
+          const userResponse = await fetch(`${config.FORTYTWO.API_BASE}/users/${login.toLowerCase()}`, {
+            headers: { Authorization: `Bearer ${tokenData.access_token}` },
+            timeout: 5000,
+          });
 
-      // 2. Fetch User Profile
-      const userResponse = await fetch(`${config.FORTYTWO.API_BASE}/users/${login.toLowerCase()}`, {
-        headers: { Authorization: `Bearer ${tokenData.access_token}` },
-      });
+          if (userResponse.ok) {
+            userData = await userResponse.json();
+            coalition = { id: null, name: 'Unaffiliated', color: '#5B7C99', imageUrl: null };
 
-      if (userResponse.status === 404) {
-        return res.status(404).json({ error: 'User not found in 42 Intra' });
-      }
-
-      userData = await userResponse.json();
-
-      // 3. Extract coalition data (first active coalition)
-      coalition = { id: null, name: 'Unaffiliated', color: '#5B7C99', imageUrl: null };
-      
-      const coalResponse = await fetch(`${config.FORTYTWO.API_BASE}/users/${userData.id}/coalitions`, {
-        headers: { Authorization: `Bearer ${tokenData.access_token}` },
-      });
-      
-      if (coalResponse.ok) {
-        const coalitions = await coalResponse.json();
-        if (coalitions && coalitions.length > 0) {
-          const activeCoalition = coalitions[0];
-          coalition = {
-            id: activeCoalition.id,
-            name: activeCoalition.name || 'Unknown',
-            color: activeCoalition.color || '#5B7C99',
-            imageUrl: activeCoalition.image_url || null,
-          };
+            try {
+              const coalResponse = await fetch(`${config.FORTYTWO.API_BASE}/users/${userData.id}/coalitions`, {
+                headers: { Authorization: `Bearer ${tokenData.access_token}` },
+                timeout: 5000,
+              });
+              if (coalResponse.ok) {
+                const coalitions = await coalResponse.json();
+                if (coalitions && coalitions.length > 0) {
+                  coalition = {
+                    id: coalitions[0].id,
+                    name: coalitions[0].name || 'Unknown',
+                    color: coalitions[0].color || '#5B7C99',
+                    imageUrl: coalitions[0].image_url || null,
+                  };
+                }
+              }
+            } catch (e) { /* coalition fetch failed, use default */ }
+            fetched = true;
+          }
         }
+      } catch (apiErr) {
+        console.warn(`[OAuth] 42 API unreachable, falling back to mock for ${login}:`, apiErr.code || apiErr.message);
       }
-    } else {
-      // Mock flow for local testing without 42 API keys
-      console.log(`[OAuth] No API keys found, mocking login for ${login}`);
-      userData = {
-        id: Math.floor(Math.random() * 100000),
-        login: login,
-        displayname: login,
-        image: { link: null }
-      };
-      coalition = { id: 1, name: 'Mock Coalition', color: '#38bdf8', imageUrl: null };
     }
 
-    // 4. Upsert player in database
+    // Fallback: mock user data
+    if (!fetched) {
+      // Deterministic ID from login string (so same login = same user)
+      let hash = 0;
+      for (let i = 0; i < login.length; i++) {
+        hash = ((hash << 5) - hash) + login.charCodeAt(i);
+        hash |= 0;
+      }
+      const mockId = Math.abs(hash) % 100000 + 1000;
+
+      const colors = ['#3B82F6', '#EF4444', '#22C55E', '#A855F7', '#38bdf8', '#fb923c'];
+      const names = ['The Order', 'The Assembly', 'The Alliance', 'The Federation'];
+      const idx = mockId % colors.length;
+
+      userData = {
+        id: mockId,
+        login: login,
+        displayname: login,
+        image: { link: null },
+      };
+      coalition = {
+        id: (mockId % 4) + 1,
+        name: names[mockId % names.length],
+        color: colors[idx],
+        imageUrl: null,
+      };
+      console.log(`[OAuth] Mock login: ${login} (id=${mockId}, coalition=${coalition.name})`);
+    }
+
+    // Upsert player in database
     const upsertStmt = db.prepare(`
       INSERT INTO players (intra_id, login, display_name, avatar_url,
                            coalition_id, coalition_name, coalition_color, coalition_image_url,
@@ -243,7 +262,6 @@ router.post('/direct-login', async (req, res) => {
 
     const player = db.prepare('SELECT * FROM players WHERE intra_id = ?').get(userData.id);
 
-    // 5. Set session
     req.session.user = {
       id: player.id,
       intraId: player.intra_id,
@@ -257,12 +275,56 @@ router.post('/direct-login', async (req, res) => {
       eloPoints: player.elo_points,
     };
 
-    console.log(`[OAuth] Direct Login Success: ${player.login} (${coalition.name})`);
+    console.log(`[OAuth] Login OK: ${player.login} (${coalition.name})`);
     res.json({ success: true });
   } catch (err) {
-    console.error('[OAuth] Error during direct login:', err);
+    console.error('[OAuth] Direct login error:', err);
     res.status(500).json({ error: 'Authentication failed' });
   }
+});
+
+/**
+ * Quick mock login — GET /auth/42/mock/:login
+ * Instant session creation, no API calls. For local/jam testing.
+ */
+router.get('/mock/:login', (req, res) => {
+  const login = req.params.login;
+  let hash = 0;
+  for (let i = 0; i < login.length; i++) {
+    hash = ((hash << 5) - hash) + login.charCodeAt(i);
+    hash |= 0;
+  }
+  const mockId = Math.abs(hash) % 100000 + 1000;
+  const colors = ['#3B82F6', '#EF4444', '#22C55E', '#A855F7', '#38bdf8', '#fb923c'];
+  const names = ['The Order', 'The Assembly', 'The Alliance', 'The Federation'];
+
+  const upsertStmt = db.prepare(`
+    INSERT INTO players (intra_id, login, display_name, avatar_url,
+                         coalition_id, coalition_name, coalition_color, coalition_image_url,
+                         last_login)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(intra_id) DO UPDATE SET
+      display_name = excluded.display_name,
+      last_login = CURRENT_TIMESTAMP
+  `);
+  upsertStmt.run(mockId, login, login, null, (mockId % 4) + 1, names[mockId % names.length], colors[mockId % colors.length], null);
+  const player = db.prepare('SELECT * FROM players WHERE intra_id = ?').get(mockId);
+
+  req.session.user = {
+    id: player.id,
+    intraId: player.intra_id,
+    login: player.login,
+    displayName: player.display_name,
+    avatarUrl: player.avatar_url,
+    coalitionId: player.coalition_id,
+    coalitionName: player.coalition_name,
+    coalitionColor: player.coalition_color,
+    coalitionImageUrl: player.coalition_image_url,
+    eloPoints: player.elo_points,
+  };
+
+  console.log(`[Mock] Instant login: ${login}`);
+  res.redirect('/');
 });
 
 /**
