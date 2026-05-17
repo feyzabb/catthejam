@@ -220,24 +220,75 @@
     </div>
   </div>
 
-  <!-- Trade Modal -->
+  <!-- Trade Modal (Tabbed: Bank / Player) -->
   <div class="trade-modal hidden" id="modal-trade">
     <div class="trade-card">
-      <h3>⚓ Takas Teklifi</h3>
-      <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;text-align:center;">4:1 Bank Trade — Select resource to give and receive</p>
-      <div style="display:flex;gap:16px;">
-        <div style="flex:1;">
-          <p style="font-size:0.75rem;font-weight:700;margin-bottom:6px;color:var(--accent-red);">GIVE (4x)</p>
-          <div id="trade-give" style="display:flex;flex-direction:column;gap:4px;"></div>
+      <h3>⚓ Takas</h3>
+      <div class="trade-tabs">
+        <button class="trade-tab active" id="tab-bank" data-tab="bank">Banka (4:1)</button>
+        <button class="trade-tab" id="tab-player" data-tab="player">Oyuncularla</button>
+      </div>
+
+      <!-- Bank Trade Tab -->
+      <div class="trade-tab-content active" id="trade-bank">
+        <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;text-align:center;">4 adet bir kaynak ver, 1 adet farklı kaynak al</p>
+        <div style="display:flex;gap:16px;">
+          <div style="flex:1;">
+            <p style="font-size:0.75rem;font-weight:700;margin-bottom:6px;color:var(--accent-red);">GIVE (4x)</p>
+            <div id="trade-give" style="display:flex;flex-direction:column;gap:4px;"></div>
+          </div>
+          <div style="flex:1;">
+            <p style="font-size:0.75rem;font-weight:700;margin-bottom:6px;color:var(--accent-green);">RECEIVE (1x)</p>
+            <div id="trade-receive" style="display:flex;flex-direction:column;gap:4px;"></div>
+          </div>
         </div>
-        <div style="flex:1;">
-          <p style="font-size:0.75rem;font-weight:700;margin-bottom:6px;color:var(--accent-green);">RECEIVE (1x)</p>
-          <div id="trade-receive" style="display:flex;flex-direction:column;gap:4px;"></div>
+        <div class="trade-actions">
+          <button class="btn-modal btn-cancel" id="btn-trade-cancel">İptal</button>
+          <button class="btn-modal btn-confirm" id="btn-trade-confirm">Takas Yap</button>
         </div>
       </div>
+
+      <!-- Player Trade Tab -->
+      <div class="trade-tab-content" id="trade-player">
+        <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;text-align:center;">Diğer oyunculara takas teklifi gönder</p>
+        <div style="display:flex;gap:16px;">
+          <div style="flex:1;">
+            <p style="font-size:0.75rem;font-weight:700;margin-bottom:6px;color:var(--accent-red);">VER</p>
+            <div class="trade-resource-picker" id="p2p-give">
+              <div class="trade-res-row" data-res="wood"><span>🪵 Wood</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="stone"><span>🪨 Stone</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="iron"><span>⛏️ Iron</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="gold"><span>🪙 Gold</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="food"><span>🍞 Food</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+            </div>
+          </div>
+          <div style="flex:1;">
+            <p style="font-size:0.75rem;font-weight:700;margin-bottom:6px;color:var(--accent-green);">İSTE</p>
+            <div class="trade-resource-picker" id="p2p-receive">
+              <div class="trade-res-row" data-res="wood"><span>🪵 Wood</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="stone"><span>🪨 Stone</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="iron"><span>⛏️ Iron</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="gold"><span>🪙 Gold</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="food"><span>🍞 Food</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+            </div>
+          </div>
+        </div>
+        <div class="trade-actions">
+          <button class="btn-modal btn-cancel" id="btn-p2p-cancel">İptal</button>
+          <button class="btn-modal btn-confirm" id="btn-p2p-send">Teklif Gönder</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Incoming Trade Offer Popup -->
+  <div class="trade-offer-popup hidden" id="trade-offer-popup">
+    <div class="trade-offer-card">
+      <h4 id="trade-offer-title">Takas Teklifi</h4>
+      <p id="trade-offer-details"></p>
       <div class="trade-actions">
-        <button class="btn-modal btn-cancel" id="btn-trade-cancel">Cancel</button>
-        <button class="btn-modal btn-confirm" id="btn-trade-confirm">Trade</button>
+        <button class="btn-modal btn-cancel" id="btn-reject-trade">Reddet</button>
+        <button class="btn-modal btn-confirm" id="btn-accept-trade">Kabul Et</button>
       </div>
     </div>
   </div>

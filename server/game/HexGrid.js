@@ -266,12 +266,20 @@ class HexGrid {
   }
 
   /**
-   * Place a building without distance rule checks (for setup phase).
+   * Place a building without cost checks (for setup phase).
+   * Still enforces distance rule — no adjacent vertex may have a building.
    */
   placeBuildingFree(vertexId, playerId, type) {
     const vertex = this.vertices.get(vertexId);
     if (!vertex) return false;
     if (vertex.building) return false;
+
+    // Distance rule: no adjacent vertex can have a building
+    for (const adjId of vertex.adjacentVertices) {
+      const adj = this.vertices.get(adjId);
+      if (adj && adj.building) return false;
+    }
+
     vertex.building = { type, playerId };
     return true;
   }
@@ -287,6 +295,59 @@ class HexGrid {
       if (edge && edge.road && edge.road.playerId === playerId) return true;
     }
     return false;
+  }
+
+  /**
+   * Get all empty edges that a player can legally build a road on.
+   * An edge is valid if it is empty AND at least one of its endpoints
+   * has that player's building or road.
+   */
+  getValidEdgesForPlayer(playerId) {
+    const valid = [];
+    for (const [edgeId, edge] of this.edges) {
+      if (edge.road) continue; // already occupied
+
+      const v1 = this.vertices.get(edge.v1Id);
+      const v2 = this.vertices.get(edge.v2Id);
+
+      const hasConnection =
+        (v1 && v1.building && v1.building.playerId === playerId) ||
+        (v2 && v2.building && v2.building.playerId === playerId) ||
+        this._hasAdjacentRoad(edge.v1Id, playerId) ||
+        this._hasAdjacentRoad(edge.v2Id, playerId);
+
+      if (hasConnection) valid.push(edgeId);
+    }
+    return valid;
+  }
+
+  /**
+   * Get all empty vertices where a player can legally build a village.
+   * A vertex is valid if:
+   *  - It has no building
+   *  - No adjacent vertex has a building (distance rule)
+   *  - (In GAMEPLAY) it is adjacent to the player's road network
+   * The `requireRoad` param controls the road adjacency check.
+   */
+  getValidNodesForPlayer(playerId, requireRoad = false) {
+    const valid = [];
+    for (const [vertexId, vertex] of this.vertices) {
+      if (vertex.building) continue;
+
+      // Distance rule
+      let tooClose = false;
+      for (const adjId of vertex.adjacentVertices) {
+        const adj = this.vertices.get(adjId);
+        if (adj && adj.building) { tooClose = true; break; }
+      }
+      if (tooClose) continue;
+
+      // Road adjacency check (only during normal gameplay)
+      if (requireRoad && !this._hasAdjacentRoad(vertexId, playerId)) continue;
+
+      valid.push(vertexId);
+    }
+    return valid;
   }
 
   /**

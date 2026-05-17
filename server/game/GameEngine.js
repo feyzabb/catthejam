@@ -13,6 +13,9 @@ const config = require('../config');
 const HexGrid = require('./HexGrid');
 const { v4: uuidv4 } = require('uuid');
 
+// Active trade offers: Map<tradeId, { proposerId, give, receive, roomId }>
+const activeTrades = new Map();
+
 // Building costs
 const COSTS = {
   road: { wood: 1, stone: 1 },
@@ -517,10 +520,13 @@ class GameEngine {
    * Get the full game state.
    */
   getFullState(players) {
+    const currentPlayerId = this.turnOrder[this.currentTurn];
+    const requireRoad = this.currentPhase === 'GAMEPLAY';
+
     return {
       phase: this.currentPhase,
       currentTurn: this.currentTurn,
-      currentPlayerId: this.turnOrder[this.currentTurn],
+      currentPlayerId,
       turnNumber: this.turnNumber,
       timeRemaining: this.timeRemaining,
       lastDice: this.lastDice,
@@ -530,7 +536,115 @@ class GameEngine {
       players: players.map(p => p.toPublicJSON()),
       events: this.events.slice(-10),
       costs: COSTS,
+      validEdges: this.grid.getValidEdgesForPlayer(currentPlayerId),
+      validNodes: this.grid.getValidNodesForPlayer(currentPlayerId, requireRoad),
     };
+  }
+
+  // ─── TRADE SYSTEM ──────────────────────────────────────────
+
+  proposeTrade(playerId, give, receive) {
+    if (this.currentPhase !== 'GAMEPLAY') return { success: false, error: 'Cannot trade now' };
+    if (this.turnOrder[this.currentTurn] !== playerId) return { success: false, error: 'Not your turn' };
+
+    const players = this.room.getPlayers();
+    const proposer = players.find(p => p.id === playerId);
+    if (!proposer) return { success: false, error: 'Player not found' };
+
+    // Verify proposer has the resources they want to give
+    for (const [type, amount] of Object.entries(give)) {
+      if ((proposer.resources[type] || 0) < amount) {
+        return { success: false, error: `Not enough ${type}` };
+      }
+    }
+
+    const tradeId = uuidv4();
+    activeTrades.set(tradeId, {
+      proposerId: playerId,
+      proposerLogin: proposer.login,
+      give,
+      receive,
+    });
+
+    // Broadcast to everyone except proposer
+    this.broadcast('trade_proposed', {
+      tradeId,
+      proposerId: playerId,
+      proposerLogin: proposer.login,
+      give,
+      receive,
+    });
+
+    return { success: true, tradeId };
+  }
+
+  handleTradeResponse(responderId, tradeId, accept) {
+    const trade = activeTrades.get(tradeId);
+    if (!trade) return { success: false, error: 'Trade expired' };
+
+    if (!accept) {
+      // Just a rejection — don't cancel the trade for others
+      return { success: true, message: 'Trade rejected' };
+    }
+
+    // Accept path
+    const players = this.room.getPlayers();
+    const proposer = players.find(p => p.id === trade.proposerId);
+    const responder = players.find(p => p.id === responderId);
+    if (!proposer || !responder) return { success: false, error: 'Player not found' };
+
+    // Re-verify both sides have the resources
+    for (const [type, amount] of Object.entries(trade.give)) {
+      if ((proposer.resources[type] || 0) < amount) {
+        return { success: false, error: `${proposer.login} no longer has enough ${type}` };
+      }
+    }
+    for (const [type, amount] of Object.entries(trade.receive)) {
+      if ((responder.resources[type] || 0) < amount) {
+        return { success: false, error: `You don't have enough ${type}` };
+      }
+    }
+
+    // Execute trade
+    for (const [type, amount] of Object.entries(trade.give)) {
+      proposer.resources[type] -= amount;
+      responder.resources[type] = (responder.resources[type] || 0) + amount;
+    }
+    for (const [type, amount] of Object.entries(trade.receive)) {
+      responder.resources[type] -= amount;
+      proposer.resources[type] = (proposer.resources[type] || 0) + amount;
+    }
+
+    activeTrades.delete(tradeId);
+
+    this.broadcast('trade_completed', {
+      tradeId,
+      proposerId: trade.proposerId,
+      proposerLogin: trade.proposerLogin,
+      responderId,
+      responderLogin: responder.login,
+      give: trade.give,
+      receive: trade.receive,
+    });
+
+    // Send updated resources
+    this.broadcast('resources_updated', {
+      playerId: proposer.id,
+      login: proposer.login,
+      playerResources: proposer.resources,
+      gained: [],
+      reason: 'trade'
+    });
+    this.broadcast('resources_updated', {
+      playerId: responder.id,
+      login: responder.login,
+      playerResources: responder.resources,
+      gained: [],
+      reason: 'trade'
+    });
+
+    this._broadcastState(players);
+    return { success: true };
   }
 
   /**

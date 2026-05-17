@@ -200,6 +200,28 @@ function connectSocket() {
   s.on('error', ({ code, message }) => {
     addEventLog(`❌ ${message}`);
   });
+
+  // ─── TRADE SOCKET EVENTS ─────────────────────────────────
+  s.on('trade_proposed', (data) => {
+    // Don't show popup to the proposer
+    if (data.proposerId === state.user.id) return;
+
+    state._pendingTradeId = data.tradeId;
+    const giveStr = Object.entries(data.give).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
+    const receiveStr = Object.entries(data.receive).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
+    $('#trade-offer-title').textContent = `${data.proposerLogin} takas teklif ediyor`;
+    $('#trade-offer-details').textContent = `Veriyor: ${giveStr} — İstiyor: ${receiveStr}`;
+    $('#trade-offer-popup').classList.remove('hidden');
+    addEventLog(`🤝 ${data.proposerLogin} takas teklifinde bulundu!`);
+  });
+
+  s.on('trade_completed', (data) => {
+    const giveStr = Object.entries(data.give).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
+    const receiveStr = Object.entries(data.receive).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
+    addEventLog(`✅ ${data.proposerLogin} ↔ ${data.responderLogin}: ${giveStr} <-> ${receiveStr}`);
+    $('#trade-offer-popup').classList.add('hidden');
+    $('#modal-trade').classList.add('hidden');
+  });
 }
 
 // ─── ROOM LIST & LOBBY ────────────────────────────────────
@@ -614,8 +636,13 @@ function renderDOMSlots(gs) {
   }
 
   const isSetup = gs.phase === 'SETUP';
+  const isMyTurn = gs.currentPlayerId === state.user?.id;
   const showNodes = state.selectedAction === 'BUILD_VILLAGE' || state.selectedAction === 'UPGRADE_CITY' || (isSetup && gs.setupStep === 'village');
   const showEdges = state.selectedAction === 'BUILD_SHIP' || (isSetup && gs.setupStep === 'road');
+
+  // Use server-provided valid slot lists
+  const validNodeSet = new Set(gs.validNodes || []);
+  const validEdgeSet = new Set(gs.validEdges || []);
 
   // Vertices (Nodes)
   for (const v of gs.grid.vertices) {
@@ -626,7 +653,9 @@ function renderDOMSlots(gs) {
       slot.dataset.nodeId = v.id;
       slot.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (state.selectedAction === 'BUILD_VILLAGE' || (isSetup && gs.setupStep === 'village')) {
+        const curGs = state.gameState;
+        const curSetup = curGs && curGs.phase === 'SETUP';
+        if (state.selectedAction === 'BUILD_VILLAGE' || (curSetup && curGs.setupStep === 'village')) {
           state.socket.emit('build_settlement', { nodeId: v.id });
         } else if (state.selectedAction === 'UPGRADE_CITY') {
           state.socket.emit('game:command', { type: 'UPGRADE_CITY', vertexId: v.id });
@@ -641,10 +670,12 @@ function renderDOMSlots(gs) {
     if (v.building) {
       slot.classList.add('built');
       slot.classList.remove('visible');
+      slot.style.pointerEvents = 'none';
     } else {
       slot.classList.remove('built');
-      slot.classList.toggle('visible', showNodes);
-      slot.style.pointerEvents = showNodes ? 'auto' : 'none';
+      const isValid = isMyTurn && showNodes && validNodeSet.has(v.id);
+      slot.classList.toggle('visible', isValid);
+      slot.style.pointerEvents = isValid ? 'auto' : 'none';
     }
   }
 
@@ -657,7 +688,9 @@ function renderDOMSlots(gs) {
       slot.dataset.edgeId = e.id;
       slot.addEventListener('click', (ev) => {
         ev.stopPropagation();
-        if (state.selectedAction === 'BUILD_SHIP' || (isSetup && gs.setupStep === 'road')) {
+        const curGs = state.gameState;
+        const curSetup = curGs && curGs.phase === 'SETUP';
+        if (state.selectedAction === 'BUILD_SHIP' || (curSetup && curGs.setupStep === 'road')) {
           state.socket.emit('build_road', { edgeId: e.id });
         }
       });
@@ -679,10 +712,12 @@ function renderDOMSlots(gs) {
     if (e.road) {
       slot.classList.add('built');
       slot.classList.remove('visible');
+      slot.style.pointerEvents = 'none';
     } else {
       slot.classList.remove('built');
-      slot.classList.toggle('visible', showEdges);
-      slot.style.pointerEvents = showEdges ? 'auto' : 'none';
+      const isValid = isMyTurn && showEdges && validEdgeSet.has(e.id);
+      slot.classList.toggle('visible', isValid);
+      slot.style.pointerEvents = isValid ? 'auto' : 'none';
     }
   }
 }
@@ -816,6 +851,79 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#modal-create-room').classList.add('hidden');
   });
   $('#btn-cancel-create')?.addEventListener('click', () => $('#modal-create-room').classList.add('hidden'));
+
+  // ─── Trade Tab Switching ────────────────────────────────
+  $$('.trade-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      $$('.trade-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      $$('.trade-tab-content').forEach(c => c.classList.remove('active'));
+      $(`#trade-${tab.dataset.tab}`).classList.add('active');
+    });
+  });
+
+  // ─── P2P Trade +/- Buttons ─────────────────────────────
+  ['p2p-give', 'p2p-receive'].forEach(containerId => {
+    const container = $(`#${containerId}`);
+    if (!container) return;
+    container.querySelectorAll('.res-plus').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const countEl = btn.parentElement.querySelector('.res-count');
+        countEl.textContent = parseInt(countEl.textContent) + 1;
+      });
+    });
+    container.querySelectorAll('.res-minus').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const countEl = btn.parentElement.querySelector('.res-count');
+        const val = parseInt(countEl.textContent);
+        if (val > 0) countEl.textContent = val - 1;
+      });
+    });
+  });
+
+  // ─── P2P Trade Send ────────────────────────────────────
+  $('#btn-p2p-send')?.addEventListener('click', () => {
+    const give = {};
+    const receive = {};
+    $('#p2p-give').querySelectorAll('.trade-res-row').forEach(row => {
+      const count = parseInt(row.querySelector('.res-count').textContent);
+      if (count > 0) give[row.dataset.res] = count;
+    });
+    $('#p2p-receive').querySelectorAll('.trade-res-row').forEach(row => {
+      const count = parseInt(row.querySelector('.res-count').textContent);
+      if (count > 0) receive[row.dataset.res] = count;
+    });
+    if (Object.keys(give).length === 0 || Object.keys(receive).length === 0) {
+      addEventLog('❌ Takas için en az 1 kaynak ver ve 1 kaynak iste!');
+      return;
+    }
+    state.socket.emit('propose_trade', { give, receive });
+    $('#modal-trade').classList.add('hidden');
+    // Reset counts
+    $$('#p2p-give .res-count, #p2p-receive .res-count').forEach(el => el.textContent = '0');
+    addEventLog('📤 Takas teklifiniz gönderildi!');
+  });
+
+  $('#btn-p2p-cancel')?.addEventListener('click', () => {
+    $('#modal-trade').classList.add('hidden');
+  });
+
+  // ─── Incoming Trade Response ────────────────────────────
+  $('#btn-accept-trade')?.addEventListener('click', () => {
+    if (state._pendingTradeId) {
+      state.socket.emit('trade_response', { tradeId: state._pendingTradeId, accept: true });
+      state._pendingTradeId = null;
+    }
+    $('#trade-offer-popup').classList.add('hidden');
+  });
+
+  $('#btn-reject-trade')?.addEventListener('click', () => {
+    if (state._pendingTradeId) {
+      state.socket.emit('trade_response', { tradeId: state._pendingTradeId, accept: false });
+      state._pendingTradeId = null;
+    }
+    $('#trade-offer-popup').classList.add('hidden');
+  });
 });
 
 function escapeHtml(str) {

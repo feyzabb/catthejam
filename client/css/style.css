@@ -545,3 +545,82 @@ body {
   border-color: transparent !important;
   pointer-events: none;
 }
+
+/* ── Trade Tab System ── */
+.trade-tabs {
+  display: flex; gap: 0; margin-bottom: 14px;
+  border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--border-glow);
+}
+.trade-tab {
+  flex: 1; padding: 8px 12px;
+  background: var(--bg-deep); color: var(--text-muted);
+  border: none; cursor: pointer; font-size: 0.8rem; font-weight: 600;
+  font-family: var(--font-main);
+  transition: all 0.2s ease;
+}
+.trade-tab.active {
+  background: var(--accent-cyan); color: #0f172a;
+}
+.trade-tab-content { display: none; }
+.trade-tab-content.active { display: block; }
+
+/* ── P2P Trade Resource Picker ── */
+.trade-resource-picker {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.trade-res-row {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(255,255,255,0.04); border-radius: 6px;
+  padding: 5px 8px; font-size: 0.78rem;
+}
+.trade-res-row span:first-child { flex: 1; }
+.trade-res-row .res-count {
+  width: 24px; text-align: center; font-weight: 700;
+  color: var(--accent-cyan);
+}
+.trade-res-row .res-minus,
+.trade-res-row .res-plus {
+  width: 22px; height: 22px;
+  background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15);
+  color: #fff; border-radius: 4px; cursor: pointer;
+  font-size: 0.85rem; line-height: 1; text-align: center;
+  font-family: var(--font-main);
+  transition: background 0.15s;
+}
+.trade-res-row .res-minus:hover,
+.trade-res-row .res-plus:hover {
+  background: rgba(34,211,238,0.3);
+}
+
+/* ── Incoming Trade Offer Popup ── */
+.trade-offer-popup {
+  position: fixed; bottom: 20px; right: 20px; z-index: 100;
+  animation: slideUp 0.3s ease;
+}
+.trade-offer-popup.hidden { display: none; }
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.trade-offer-card {
+  background: var(--bg-card); border: 1px solid var(--border-glow);
+  border-radius: var(--radius); padding: 16px 20px;
+  box-shadow: var(--shadow-lg), 0 0 20px rgba(34,211,238,0.15);
+  min-width: 280px; max-width: 360px;
+}
+.trade-offer-card h4 {
+  margin: 0 0 8px; font-size: 0.95rem; color: var(--accent-cyan);
+}
+.trade-offer-card p {
+  margin: 0 0 12px; font-size: 0.82rem; color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* ── Resource Flash Animation ── */
+.flash { animation: resFlash 0.5s ease; }
+@keyframes resFlash {
+  0% { filter: brightness(1); }
+  50% { filter: brightness(1.5) drop-shadow(0 0 8px var(--accent-cyan)); }
+  100% { filter: brightness(1); }
+}

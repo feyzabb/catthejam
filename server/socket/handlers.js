@@ -105,6 +105,26 @@ function registerSocketHandlers(io, socket, roomManager, playerManager) {
     handleGameAction({ type: 'END_TURN' });
   });
 
+  // ─── TRADE EVENTS ──────────────────────────────────────────
+
+  socket.on('propose_trade', ({ give, receive }) => {
+    const room = roomManager.getPlayerRoom(user.id);
+    if (!room || !room.game) return;
+    const result = room.game.proposeTrade(user.id, give, receive);
+    if (!result.success) {
+      socket.emit(E.ERROR, { code: 'TRADE_FAILED', message: result.error });
+    }
+  });
+
+  socket.on('trade_response', ({ tradeId, accept }) => {
+    const room = roomManager.getPlayerRoom(user.id);
+    if (!room || !room.game) return;
+    const result = room.game.handleTradeResponse(user.id, tradeId, accept);
+    if (!result.success) {
+      socket.emit(E.ERROR, { code: 'TRADE_FAILED', message: result.error });
+    }
+  });
+
   // Keep for other commands (trade, upgrade city, navy attack)
   socket.on(E.GAME_COMMAND, handleGameAction);
 
