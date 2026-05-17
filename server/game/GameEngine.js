@@ -16,12 +16,16 @@ const { v4: uuidv4 } = require('uuid');
 // Active trade offers: Map<tradeId, { proposerId, give, receive, roomId }>
 const activeTrades = new Map();
 
+// Canonical resource types — MUST match Player.js and client
+const RESOURCE_TYPES = ['wood', 'stone', 'iron', 'gold', 'food'];
+
 // Building costs
 const COSTS = {
-  road: { wood: 1, stone: 1 },
-  village: { wood: 1, stone: 1, food: 1, gold: 1 },
-  city: { iron: 3, food: 2 },
+  road:        { wood: 1, stone: 1 },
+  village:     { wood: 1, stone: 1, food: 1, gold: 1 },
+  city:        { iron: 3, food: 2 },
   navy_attack: { iron: 1, food: 1, gold: 1 },
+  dev_card:    { iron: 1, food: 1, gold: 1 },
 };
 
 class GameEngine {
@@ -311,10 +315,9 @@ class GameEngine {
   _handleBuyDevCard(player, players) {
     if (this.currentPhase !== 'GAMEPLAY') return { success: false, error: 'Not in build phase' };
 
-    const cost = { iron: 1, food: 1, gold: 1 };
-    if (!player.canAfford(cost)) return { success: false, error: 'Cannot afford dev card' };
+    if (!player.canAfford(COSTS.dev_card)) return { success: false, error: 'Cannot afford dev card' };
 
-    player.spendCost(cost);
+    player.spendCost(COSTS.dev_card);
     
     // 33% chance for VP, 67% chance for 2 random resources (Year of Plenty)
     const rand = Math.random();
@@ -322,9 +325,8 @@ class GameEngine {
       player.devCardsVp++;
       this.events.push({ type: 'DEV_CARD_BOUGHT', playerId: player.id, card: 'Victory Point' });
     } else {
-      const types = ['wood', 'stone', 'iron', 'gold', 'food'];
-      const r1 = types[Math.floor(Math.random() * types.length)];
-      const r2 = types[Math.floor(Math.random() * types.length)];
+      const r1 = RESOURCE_TYPES[Math.floor(Math.random() * RESOURCE_TYPES.length)];
+      const r2 = RESOURCE_TYPES[Math.floor(Math.random() * RESOURCE_TYPES.length)];
       player.addResource(r1, 1);
       player.addResource(r2, 1);
       this.events.push({ type: 'DEV_CARD_BOUGHT', playerId: player.id, card: 'Year of Plenty' });
@@ -366,9 +368,8 @@ class GameEngine {
         if (totalRes > 7) {
           const toDiscard = Math.floor(totalRes / 2);
           let discarded = 0;
-          const types = ['wood', 'stone', 'iron', 'gold', 'food'];
           while (discarded < toDiscard) {
-            for (const type of types) {
+            for (const type of RESOURCE_TYPES) {
               if (p.resources[type] > 0 && discarded < toDiscard) {
                 p.resources[type]--;
                 discarded++;
@@ -626,24 +627,31 @@ class GameEngine {
     const proposer = players.find(p => p.id === playerId);
     if (!proposer) return { success: false, error: 'Player not found' };
 
-    // Verify proposer has the resources they want to give
+    // Validate give resources exist in canonical set
     for (const [type, amount] of Object.entries(give)) {
+      if (!RESOURCE_TYPES.includes(type)) return { success: false, error: `Unknown resource: ${type}` };
       if ((proposer.resources[type] || 0) < amount) {
-        return { success: false, error: `Not enough ${type}` };
+        return { success: false, error: `Not enough ${type} (have ${proposer.resources[type] || 0}, need ${amount})` };
       }
+    }
+    // Validate receive resources
+    for (const type of Object.keys(receive)) {
+      if (!RESOURCE_TYPES.includes(type)) return { success: false, error: `Unknown resource: ${type}` };
     }
 
     const tradeId = uuidv4();
-    activeTrades.set(tradeId, {
+    const tradeData = {
       tradeId,
       proposerId: playerId,
       proposerLogin: proposer.login,
       give,
       receive,
-      responses: {} // map of responderId -> { type: 'ACCEPT'|'REJECT'|'COUNTER', give, receive }
-    });
+      responses: {}, // map of responderId -> { type: 'ACCEPT'|'REJECT'|'COUNTER', give, receive }
+      otherPlayerIds: players.filter(p => p.id !== playerId).map(p => p.id),
+    };
+    activeTrades.set(tradeId, tradeData);
 
-    // Broadcast to everyone except proposer
+    // Broadcast to everyone (proposer & others). Client filters by proposerId.
     this.broadcast('trade_proposed', {
       tradeId,
       proposerId: playerId,
@@ -658,17 +666,27 @@ class GameEngine {
   handleTradeResponse(responderId, tradeId, responseType, counterGive, counterReceive) {
     const trade = activeTrades.get(tradeId);
     if (!trade) return { success: false, error: 'Trade expired or does not exist' };
+    if (trade.proposerId === responderId) return { success: false, error: 'You cannot respond to your own trade' };
     
     const players = this.room.getPlayers();
     const responder = players.find(p => p.id === responderId);
     if (!responder) return { success: false, error: 'Player not found' };
 
-    // If counter-offer or accept, verify responder has the resources THEY are giving
-    const giveObj = responseType === 'COUNTER' ? counterGive : trade.receive;
+    // Validate response type
+    if (!['ACCEPT', 'REJECT', 'COUNTER'].includes(responseType)) {
+      return { success: false, error: 'Invalid response type' };
+    }
+
+    // If ACCEPT or COUNTER, verify responder has the resources THEY are giving
     if (responseType !== 'REJECT') {
+      const giveObj = responseType === 'COUNTER' ? counterGive : trade.receive;
+      if (!giveObj || Object.keys(giveObj).length === 0) {
+        return { success: false, error: 'No resources specified for give' };
+      }
       for (const [type, amount] of Object.entries(giveObj)) {
+        if (!RESOURCE_TYPES.includes(type)) return { success: false, error: `Unknown resource: ${type}` };
         if ((responder.resources[type] || 0) < amount) {
-          return { success: false, error: `You don't have enough ${type}` };
+          return { success: false, error: `You don't have enough ${type} (have ${responder.resources[type] || 0}, need ${amount})` };
         }
       }
     }
@@ -676,11 +694,11 @@ class GameEngine {
     trade.responses[responderId] = {
       responderLogin: responder.login,
       type: responseType, // 'ACCEPT' | 'REJECT' | 'COUNTER'
-      give: responseType === 'COUNTER' ? counterGive : trade.receive,
-      receive: responseType === 'COUNTER' ? counterReceive : trade.give
+      give: responseType === 'COUNTER' ? counterGive : (responseType === 'REJECT' ? {} : trade.receive),
+      receive: responseType === 'COUNTER' ? counterReceive : (responseType === 'REJECT' ? {} : trade.give)
     };
 
-    // Send the response update back to the proposer
+    // Send the response update to the proposer (and everyone — client filters)
     this.broadcast('trade_response_update', {
       tradeId,
       responderId,
@@ -689,6 +707,12 @@ class GameEngine {
       give: trade.responses[responderId].give,
       receive: trade.responses[responderId].receive
     });
+
+    // Check if all other players have responded
+    const allResponded = trade.otherPlayerIds.every(id => trade.responses[id]);
+    if (allResponded) {
+      this.broadcast('trade_all_responded', { tradeId });
+    }
 
     return { success: true };
   }
@@ -770,21 +794,41 @@ class GameEngine {
     const player = players.find(p => p.id === playerId);
     if (!player) return { success: false, error: 'Player not found' };
 
-    if ((player.resources[giveType] || 0) < 4) {
-      return { success: false, error: `You need 4 ${giveType} for bank trade` };
+    // Validate canonical resource names
+    if (!RESOURCE_TYPES.includes(giveType)) return { success: false, error: `Unknown resource: ${giveType}` };
+    if (!RESOURCE_TYPES.includes(receiveType)) return { success: false, error: `Unknown resource: ${receiveType}` };
+    if (giveType === receiveType) return { success: false, error: 'Give and receive must be different resources' };
+
+    // Standard bank rate: 4:1
+    const required = 4;
+    if ((player.resources[giveType] || 0) < required) {
+      return { success: false, error: `Banka için ${giveType} kaynağından en az ${required} adet gerekli (elinizde: ${player.resources[giveType] || 0})` };
     }
 
-    player.resources[giveType] -= 4;
+    player.resources[giveType] -= required;
     player.addResource(receiveType, 1);
 
     this.events.push({ type: 'BANK_TRADE', playerId: player.id, give: giveType, receive: receiveType });
 
+    // Notify everyone of the resource change
     this.broadcast('resources_updated', {
       playerId: player.id,
       login: player.login,
       playerResources: player.resources,
       gained: [{ type: receiveType, amount: 1 }],
+      lost: [{ type: giveType, amount: required }],
       reason: 'bank_trade'
+    });
+
+    // Also fire a dedicated bank trade result event for UI feedback
+    this.broadcast('bank_trade_result', {
+      playerId: player.id,
+      login: player.login,
+      giveType,
+      giveAmount: required,
+      receiveType,
+      receiveAmount: 1,
+      playerResources: player.resources,
     });
 
     this._broadcastState(players);

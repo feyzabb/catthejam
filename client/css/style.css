@@ -332,20 +332,32 @@ body {
 /* Resource Panel (left) */
 .hud-resources { display: flex; gap: 8px; align-items: center; }
 .resource {
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 6px 10px; background: var(--bg-glass); border-radius: var(--radius-sm);
-  border: 1px solid var(--border-glow); border-top-width: 3px; min-width: 56px; transition: border-color .2s;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 7px 12px; background: var(--bg-glass); border-radius: var(--radius-sm);
+  border: 1px solid var(--border-glow); border-top-width: 3px; min-width: 60px;
+  transition: all .25s; cursor: default; position: relative;
 }
-.resource:hover { border-color: var(--accent-cyan); }
-#res-wood { border-top-color: #a47754; background: linear-gradient(180deg, rgba(164,119,84,0.15) 0%, rgba(0,0,0,0.5) 100%); }
-#res-stone { border-top-color: #94a3b8; background: linear-gradient(180deg, rgba(148,163,184,0.15) 0%, rgba(0,0,0,0.5) 100%); }
-#res-iron { border-top-color: #f1f5f9; background: linear-gradient(180deg, rgba(241,245,249,0.15) 0%, rgba(0,0,0,0.5) 100%); }
-#res-gold { border-top-color: #fbbf24; background: linear-gradient(180deg, rgba(251,191,36,0.15) 0%, rgba(0,0,0,0.5) 100%); }
-#res-food { border-top-color: #fca5a5; background: linear-gradient(180deg, rgba(252,165,165,0.15) 0%, rgba(0,0,0,0.5) 100%); }
+.resource:hover {
+  border-color: var(--accent-cyan);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+}
+/* Individual resource tints (border-top & subtle gradient bg) */
+#res-wood  { border-top-color: #c8956c; background: linear-gradient(160deg, rgba(200,149,108,0.2) 0%, rgba(0,0,0,0.45) 100%); }
+#res-stone { border-top-color: #94a3b8; background: linear-gradient(160deg, rgba(148,163,184,0.2) 0%, rgba(0,0,0,0.45) 100%); }
+#res-iron  { border-top-color: #e2e8f0; background: linear-gradient(160deg, rgba(226,232,240,0.2) 0%, rgba(0,0,0,0.45) 100%); }
+#res-gold  { border-top-color: #fbbf24; background: linear-gradient(160deg, rgba(251,191,36,0.2)  0%, rgba(0,0,0,0.45) 100%); }
+#res-food  { border-top-color: #f87171; background: linear-gradient(160deg, rgba(248,113,113,0.2) 0%, rgba(0,0,0,0.45) 100%); }
+/* Glow effect per resource on hover */
+#res-wood:hover  { box-shadow: 0 0 14px rgba(200,149,108,0.4); }
+#res-stone:hover { box-shadow: 0 0 14px rgba(148,163,184,0.4); }
+#res-iron:hover  { box-shadow: 0 0 14px rgba(226,232,240,0.4); }
+#res-gold:hover  { box-shadow: 0 0 14px rgba(251,191,36, 0.5); }
+#res-food:hover  { box-shadow: 0 0 14px rgba(248,113,113,0.4); }
 .res-icon { width: 28px; height: 28px; display: block; }
 .res-icon img { width: 100%; height: 100%; object-fit: contain; }
-.res-val { font-family: var(--font-mono); font-weight: 800; font-size: 1rem; color: #fff; }
-.res-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); font-weight: 600; }
+.res-val { font-family: var(--font-mono); font-weight: 800; font-size: 1.1rem; color: #fff; line-height: 1; }
+.res-label { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted); font-weight: 700; }
 
 /* Phase / Turn Status (center) */
 .hud-status { text-align: center; display: flex; flex-direction: column; justify-content: center; min-width: 180px; }
@@ -623,9 +635,57 @@ body {
 }
 
 /* ── Resource Flash Animation ── */
-.flash { animation: resFlash 0.5s ease; }
+.flash { animation: resFlash 0.55s ease; }
 @keyframes resFlash {
-  0% { filter: brightness(1); }
-  50% { filter: brightness(1.5) drop-shadow(0 0 8px var(--accent-cyan)); }
+  0%   { filter: brightness(1); }
+  35%  { filter: brightness(1.7) drop-shadow(0 0 10px var(--accent-cyan)); }
   100% { filter: brightness(1); }
 }
+
+/* ── Trade Response Items ── */
+.response-item {
+  animation: slideIn 0.25s ease;
+}
+.response-item button.btn-confirm {
+  white-space: nowrap;
+  background: linear-gradient(135deg, var(--accent-green), #16a34a);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--font-main);
+  font-weight: 600;
+  transition: all 0.2s;
+}
+.response-item button.btn-confirm:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 10px rgba(74, 222, 128, 0.4);
+}
+
+/* ── Trade Status Badge (proposer waiting indicator) ── */
+.trade-waiting-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.78rem; color: var(--accent-orange);
+  animation: waitPulse 1.4s ease-in-out infinite;
+}
+@keyframes waitPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+/* ── Proposer Response Section ── */
+#proposer-responses-section h4 {
+  font-size: 0.85rem; color: var(--accent-cyan);
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 8px;
+}
+
+/* ── Bank Trade Select styling ── */
+.input-room option { background: #1e293b; color: #f8fafc; }
+
+/* ── Incoming trade popup ── */
+.trade-offer-card h4 { color: var(--accent-gold); }
+.trade-offer-card p  { color: var(--text-secondary); }
+#btn-accept-trade  { background: linear-gradient(135deg, var(--accent-green), #16a34a); }
+#btn-reject-trade  { background: rgba(100,116,139,0.5); }
+#btn-show-counter  { background: var(--accent-orange); color: #1e293b; font-weight: 700; }

@@ -107,14 +107,22 @@ function registerSocketHandlers(io, socket, roomManager, playerManager) {
 
   // ─── TRADE EVENTS ──────────────────────────────────────────
 
-  socket.on('propose_trade', ({ give, receive }) => {
+  // Primary P2P trade proposal handler
+  const handleProposeTrade = ({ give, receive }) => {
     const room = roomManager.getPlayerRoom(user.id);
     if (!room || !room.game) return;
     const result = room.game.proposeTrade(user.id, give, receive);
     if (!result.success) {
       socket.emit(E.ERROR, { code: 'TRADE_FAILED', message: result.error });
+    } else {
+      // Confirm back to proposer with their tradeId
+      socket.emit('trade_proposal_sent', { tradeId: result.tradeId });
     }
-  });
+  };
+
+  socket.on('propose_trade', handleProposeTrade);
+  // Alias used in the architecture spec
+  socket.on('start_trade_proposal', handleProposeTrade);
 
   socket.on('trade_response', ({ tradeId, responseType, counterGive, counterReceive }) => {
     const room = roomManager.getPlayerRoom(user.id);
@@ -139,8 +147,9 @@ function registerSocketHandlers(io, socket, roomManager, playerManager) {
     if (!room || !room.game) return;
     const result = room.game.bankTrade(user.id, giveType, receiveType);
     if (!result.success) {
-      socket.emit(E.ERROR, { code: 'TRADE_FAILED', message: result.error });
+      socket.emit(E.ERROR, { code: 'BANK_TRADE_FAILED', message: result.error });
     }
+    // Success broadcast is handled inside GameEngine.bankTrade via room broadcast
   });
 
   socket.on('cancel_trade', ({ tradeId }) => {

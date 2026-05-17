@@ -12,6 +12,12 @@ const state = {
   myPlayerIndex: -1,
 };
 
+// ─── RESOURCE CONSTANTS ────────────────────────────────────────
+/** Canonical 5 resource types — must match server RESOURCE_TYPES */
+const RESOURCE_TYPES = ['wood', 'stone', 'iron', 'gold', 'food'];
+const RESOURCE_EMOJI = { wood: '🪵', stone: '🪨', iron: '⛏️', gold: '🪙', food: '🍞' };
+const RESOURCE_LABEL = { wood: 'WOOD', stone: 'STONE', iron: 'IRON', gold: 'GOLD', food: 'FOOD' };
+
 // ─── DOM REFS ──────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -158,23 +164,18 @@ function connectSocket() {
 
   s.on('resources_updated', (data) => {
     // 1. Log event
-    const resString = data.gained.map(r => `+${r.amount} ${r.type}`).join(', ');
-    addEventLog(`🌱 ${data.login} got ${resString}`);
+    if (data.gained && data.gained.length > 0) {
+      const resString = data.gained.map(r => `+${r.amount} ${RESOURCE_EMOJI[r.type] || r.type}`).join(', ');
+      addEventLog(`🌱 ${data.login} got ${resString}`);
+    }
+    if (data.lost && data.lost.length > 0) {
+      const lostStr = data.lost.map(r => `-${r.amount} ${RESOURCE_EMOJI[r.type] || r.type}`).join(', ');
+      if (data.playerId === state.user?.id) addEventLog(`🏦 Bankaya verdi: ${lostStr}`);
+    }
 
-    // 2. Anında UI Güncellemesi (Sayfa yenilemeden)
-    if (data.playerId === state.user.id) {
-      if ($('#res-wood .res-val')) $('#res-wood .res-val').textContent = data.playerResources.wood || 0;
-      if ($('#res-stone .res-val')) $('#res-stone .res-val').textContent = data.playerResources.stone || 0;
-      if ($('#res-iron .res-val')) $('#res-iron .res-val').textContent = data.playerResources.iron || 0;
-      if ($('#res-gold .res-val')) $('#res-gold .res-val').textContent = data.playerResources.gold || 0;
-      if ($('#res-food .res-val')) $('#res-food .res-val').textContent = data.playerResources.food || 0;
-      
-      // Flash effect (opsiyonel)
-      const resContainer = $('#res-container') || $('.game-hud-top');
-      if (resContainer) {
-        resContainer.classList.add('flash');
-        setTimeout(() => resContainer.classList.remove('flash'), 500);
-      }
+    // 2. Instant UI update for own player (no page reload)
+    if (data.playerId === state.user?.id && data.playerResources) {
+      updateResourceBars(data.playerResources);
     }
   });
 
@@ -203,19 +204,29 @@ function connectSocket() {
 
   // ─── TRADE SOCKET EVENTS ─────────────────────────────────
   s.on('trade_proposed', (data) => {
-    if (data.proposerId === state.user.id) {
-      // Proposer sees their trade active
+    if (data.proposerId === state.user?.id) {
+      // Proposer's own confirmation — show response tracker
       state._activeProposerTradeId = data.tradeId;
-      $('#proposer-responses-list').innerHTML = '';
-      $('#proposer-responses-section').classList.remove('hidden');
-      $('#btn-p2p-send').disabled = true;
-      $('#btn-p2p-send').textContent = 'Teklif Bekleniyor...';
+      const list = $('#proposer-responses-list');
+      if (list) list.innerHTML = '';
+      $('#proposer-responses-section')?.classList.remove('hidden');
+      const sendBtn = $('#btn-p2p-send');
+      if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Teklif Bekleniyor...'; }
+
+      const giveStr = Object.entries(data.give).filter(([,v]) => v > 0)
+        .map(([k,v]) => `${v}${RESOURCE_EMOJI[k]}`).join(' + ');
+      const recStr  = Object.entries(data.receive).filter(([,v]) => v > 0)
+        .map(([k,v]) => `${v}${RESOURCE_EMOJI[k]}`).join(' + ');
+      addEventLog(`📤 Teklifiniz yayınlandı: ${giveStr} → ${recStr}`);
       return;
     }
 
+    // Show incoming offer popup to other players
     state._pendingTradeId = data.tradeId;
-    const giveStr = Object.entries(data.give).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
-    const receiveStr = Object.entries(data.receive).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
+    const giveStr = Object.entries(data.give).filter(([,v]) => v > 0)
+      .map(([k,v]) => `${v} ${RESOURCE_EMOJI[k]} ${RESOURCE_LABEL[k]}`).join(', ');
+    const receiveStr = Object.entries(data.receive).filter(([,v]) => v > 0)
+      .map(([k,v]) => `${v} ${RESOURCE_EMOJI[k]} ${RESOURCE_LABEL[k]}`).join(', ');
     $('#trade-offer-title').textContent = `${data.proposerLogin} takas teklif ediyor`;
     $('#trade-offer-details').textContent = `Veriyor: ${giveStr} — İstiyor: ${receiveStr}`;
     $('#trade-offer-popup').classList.remove('hidden');
@@ -234,28 +245,32 @@ function connectSocket() {
       const el = document.createElement('div');
       el.className = 'response-item';
       el.dataset.id = data.responderId;
-      el.style.cssText = 'background:rgba(255,255,255,0.05); padding:8px; border-radius:4px; display:flex; justify-content:space-between; align-items:center;';
+      el.style.cssText = 'background:rgba(255,255,255,0.05); padding:8px; border-radius:8px; display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:4px; border:1px solid rgba(255,255,255,0.08);';
 
       let text = '';
       if (data.type === 'REJECT') {
-        text = `<span style="color:var(--accent-red)">${data.responderLogin} reddetti</span>`;
+        text = `<span style="color:var(--accent-red)">❌ ${data.responderLogin} reddetti</span>`;
       } else if (data.type === 'ACCEPT') {
-        text = `<span style="color:var(--accent-green)">${data.responderLogin} kabul etti!</span>`;
+        text = `<span style="color:var(--accent-green)">✅ ${data.responderLogin} kabul etti!</span>`;
       } else if (data.type === 'COUNTER') {
-        const cGive = Object.entries(data.give).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
-        const cRec = Object.entries(data.receive).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
-        text = `<span style="color:var(--accent-orange);font-size:0.8rem;">${data.responderLogin} (Karşı): İster ${cGive}, Verir ${cRec}</span>`;
+        const cGive = Object.entries(data.give || {}).filter(([,v]) => v > 0)
+          .map(([k,v]) => `${v}${RESOURCE_EMOJI[k] || k}`).join('+');
+        const cRec = Object.entries(data.receive || {}).filter(([,v]) => v > 0)
+          .map(([k,v]) => `${v}${RESOURCE_EMOJI[k] || k}`).join('+');
+        text = `<span style="color:var(--accent-orange);font-size:0.82rem;">🔄 ${data.responderLogin}: Verir&nbsp;<b>${cGive}</b>, İster&nbsp;<b>${cRec}</b></span>`;
       }
 
-      el.innerHTML = `<div>${text}</div>`;
+      const textDiv = document.createElement('div');
+      textDiv.innerHTML = text;
+      el.appendChild(textDiv);
       
       if (data.type !== 'REJECT') {
         const btn = document.createElement('button');
         btn.className = 'btn-modal btn-confirm';
-        btn.style.padding = '4px 8px';
-        btn.textContent = 'Onayla';
+        btn.style.cssText = 'padding:5px 12px; font-size:0.78rem; flex-shrink:0;';
+        btn.textContent = '✔ Onayla';
         btn.onclick = () => {
-          s.emit('accept_trade_response', { tradeId: data.tradeId, responderId: data.responderId });
+          state.socket.emit('accept_trade_response', { tradeId: data.tradeId, responderId: data.responderId });
         };
         el.appendChild(btn);
       }
@@ -265,9 +280,9 @@ function connectSocket() {
   });
 
   s.on('trade_completed', (data) => {
-    const giveStr = Object.entries(data.give).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
-    const receiveStr = Object.entries(data.receive).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
-    addEventLog(`✅ ${data.proposerLogin} ↔ ${data.responderLogin}: ${giveStr} <-> ${receiveStr}`);
+    const giveStr = Object.entries(data.give).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${RESOURCE_EMOJI[k] || k.toUpperCase()}`).join(', ');
+    const receiveStr = Object.entries(data.receive).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${RESOURCE_EMOJI[k] || k.toUpperCase()}`).join(', ');
+    addEventLog(`✅ ${data.proposerLogin} ↔ ${data.responderLogin}: ${giveStr} ↔ ${receiveStr}`);
     _resetTradeUI();
   });
 
@@ -276,20 +291,70 @@ function connectSocket() {
     _resetTradeUI();
   });
 
+  // Fired when ALL non-proposer players have responded — proposer can now finalize
+  s.on('trade_all_responded', (data) => {
+    if (state._activeProposerTradeId === data.tradeId) {
+      const headerEl = $('#proposer-responses-list')?.previousElementSibling;
+      if (headerEl) headerEl.textContent = 'Tüm Yanıtlar Geldi — Birini Seç!';
+      addEventLog('✅ Tüm oyuncular yanıt verdi. Bir teklifi onaylayabilirsiniz.');
+    }
+  });
+
+  // Fired back to proposer to confirm trade was registered on server
+  s.on('trade_proposal_sent', (data) => {
+    state._activeProposerTradeId = data.tradeId;
+  });
+
+  // Bank trade result for instant UI feedback
+  s.on('bank_trade_result', (data) => {
+    if (data.playerId === state.user?.id) {
+      updateResourceBars(data.playerResources);
+      addEventLog(`🏦 Banka: ${data.giveAmount}x ${RESOURCE_EMOJI[data.giveType]} → 1x ${RESOURCE_EMOJI[data.receiveType]}`);
+      // Flash the resource bar
+      const bar = document.getElementById(`res-${data.receiveType}`);
+      if (bar) { bar.classList.add('flash'); setTimeout(() => bar.classList.remove('flash'), 600); }
+      // Close trade modal
+      $('#modal-trade')?.classList.add('hidden');
+    } else {
+      addEventLog(`🏦 ${data.login}: Banka takası ${data.giveAmount}x ${RESOURCE_EMOJI[data.giveType]} → 1x ${RESOURCE_EMOJI[data.receiveType]}`);
+    }
+  });
+
   function _resetTradeUI() {
     $('#trade-offer-popup')?.classList.add('hidden');
     $('#modal-trade')?.classList.add('hidden');
     $('#proposer-responses-section')?.classList.add('hidden');
-    $('#proposer-responses-list').innerHTML = '';
+    const list = $('#proposer-responses-list');
+    if (list) list.innerHTML = '';
     const sendBtn = $('#btn-p2p-send');
     if (sendBtn) {
       sendBtn.disabled = false;
       sendBtn.textContent = 'Teklif Gönder';
     }
+    // Reset proposer header
+    const header = document.querySelector('#proposer-responses-section h4');
+    if (header) header.textContent = 'Gelen Yanıtlar (Bekleniyor...)';
     state._activeProposerTradeId = null;
     state._pendingTradeId = null;
-    $$('#p2p-give .res-count, #p2p-receive .res-count, #counter-give .res-count, #counter-receive .res-count').forEach(el => el.textContent = '0');
+    // Reset all pickers to 0
+    $$('#p2p-give .res-count, #p2p-receive .res-count, #counter-give .res-count, #counter-receive .res-count')
+      .forEach(el => el.textContent = '0');
   }
+
+  // Helper: update the top resource bars from a resources object
+  function updateResourceBars(resources) {
+    if (!resources) return;
+    const resVal = (id) => document.querySelector(`#res-${id} .res-val`);
+    const wood   = resVal('wood');   if (wood)  wood.textContent  = resources.wood  || 0;
+    const stone  = resVal('stone');  if (stone) stone.textContent = resources.stone || 0;
+    const iron   = resVal('iron');   if (iron)  iron.textContent  = resources.iron  || 0;
+    const gold   = resVal('gold');   if (gold)  gold.textContent  = resources.gold  || 0;
+    const food   = resVal('food');   if (food)  food.textContent  = resources.food  || 0;
+    // Animate the whole bar container
+    const bar = document.getElementById('hud-resources');
+    if (bar) { bar.classList.add('flash'); setTimeout(() => bar.classList.remove('flash'), 500); }
+  }
+} // end connectSocket()
 
 // ─── ROOM LIST & LOBBY ────────────────────────────────────
 function renderRoomList(rooms) {
@@ -646,27 +711,13 @@ function handleCanvasClick(px, py) {
   else if (state.selectedAction === 'UPGRADE_CITY' && nearestVertex) {
     state.socket.emit('game:command', { type: 'UPGRADE_CITY', vertexId: nearestVertex });
   }
-  else if (state.selectedAction === 'NAVY_ATTACK' && nearestHex) {
-    // If it's robber phase, move robber
-    if (state.gameState.phase === 'ROBBER') {
-      state.socket.emit('game:command', { type: 'MOVE_ROBBER', q: nearestHex.q, r: nearestHex.r });
-    } else {
-      // If buying a new navy attack
-      state.socket.emit('game:command', { type: 'BUY_NAVY_ATTACK' });
-      // We will place it when the phase shifts to robber automatically
-    }
-  }
-  else if (state.selectedAction === 'BUY_DEV_CARD') {
-    state.socket.emit('game:command', { type: 'BUY_DEV_CARD' });
-    state.selectedAction = null;
-    $$('.action-btn').forEach(b => b.classList.remove('active'));
+  else if (state.gameState.phase === 'ROBBER' && nearestHex) {
+    state.socket.emit('game:command', { type: 'MOVE_ROBBER', q: nearestHex.q, r: nearestHex.r });
   }
 
-  // Deselect after click (unless we just bought a navy attack and need to place it)
-  if (state.selectedAction !== 'NAVY_ATTACK' || state.gameState.phase === 'ROBBER') {
-    state.selectedAction = null;
-    $$('.action-btn').forEach(b => b.classList.remove('active'));
-  }
+  // Deselect after click
+  state.selectedAction = null;
+  $$('.action-btn').forEach(b => b.classList.remove('active'));
   renderGameState(state.gameState);
 }
 
@@ -893,6 +944,19 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.addEventListener('click', () => {
         if (state.gameState?.currentPlayerId !== state.user.id) return;
         $$('.action-btn').forEach(b => b.classList.remove('active'));
+        
+        if (action === 'BUY_DEV_CARD') {
+          state.socket.emit('game:command', { type: 'BUY_DEV_CARD' });
+          state.selectedAction = null;
+          return;
+        }
+        
+        if (action === 'NAVY_ATTACK') {
+          state.socket.emit('game:command', { type: 'BUY_NAVY_ATTACK' });
+          state.selectedAction = null;
+          return;
+        }
+
         if (state.selectedAction === action) {
           state.selectedAction = null;
         } else {
@@ -997,14 +1061,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ─── Bank Trade Action ─────────────────────────────────
   $('#btn-trade-confirm')?.addEventListener('click', () => {
-    const give = $('#bank-give-select').value;
+    const give    = $('#bank-give-select').value;
     const receive = $('#bank-receive-select').value;
+
     if (give === receive) {
       addEventLog('❌ Farklı kaynaklar seçmelisiniz.');
       return;
     }
+
+    // Client-side pre-check: need at least 4 of give resource
+    const myPlayer = state.gameState?.players?.find(p => p.id === state.user?.id);
+    const haveAmount = (myPlayer?.resources?.[give] || 0);
+    if (haveAmount < 4) {
+      addEventLog(`❌ Banka için yeterli kaynağınız yok! ${RESOURCE_EMOJI[give]} ${RESOURCE_LABEL[give]}: ${haveAmount}/4 gerekli`);
+      return;
+    }
+
     state.socket.emit('bank_trade', { giveType: give, receiveType: receive });
-    $('#modal-trade').classList.add('hidden');
+    // Modal will be closed by bank_trade_result event handler
   });
 
   // ─── P2P Trade Send ────────────────────────────────────
@@ -1023,7 +1097,16 @@ document.addEventListener('DOMContentLoaded', () => {
       addEventLog('❌ Takas için en az 1 kaynak ver ve 1 kaynak iste!');
       return;
     }
-    state.socket.emit('propose_trade', { give, receive });
+    // Client-side resource check
+    const myPlayer = state.gameState?.players?.find(p => p.id === state.user?.id);
+    for (const [type, amount] of Object.entries(give)) {
+      const have = myPlayer?.resources?.[type] || 0;
+      if (have < amount) {
+        addEventLog(`❌ Yeterli kaynak yok: ${RESOURCE_EMOJI[type]} ${RESOURCE_LABEL[type]} (var: ${have}, gereken: ${amount})`);
+        return;
+      }
+    }
+    state.socket.emit('start_trade_proposal', { give, receive });
     addEventLog('📤 Takas teklifiniz gönderildi!');
   });
 
