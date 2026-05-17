@@ -458,7 +458,8 @@ function initGameCanvas() {
 }
 
 // ─── RENDERING ─────────────────────────────────────────────
-const HEX_SIZE = 50;
+const HEX_SIZE = 72;
+const DRAW_HEX_SIZE = 50;
 const SQRT3 = Math.sqrt(3);
 
 function renderGameState(gs) {
@@ -498,8 +499,8 @@ function renderGameState(gs) {
     const img = GameAssets.getIslandTile(hex.resourceType);
     
     if (img && img.complete) {
-      const w = SQRT3 * HEX_SIZE * 0.97; // Slightly reduced from 1.05 to create an aesthetic gap
-      const h = 2 * HEX_SIZE * 0.97;
+      const w = SQRT3 * DRAW_HEX_SIZE * 0.97;
+      const h = 2 * DRAW_HEX_SIZE * 0.97;
       ctx.drawImage(img, x - w/2, y - h/2, w, h);
     }
 

@@ -14,7 +14,7 @@ class HexGrid {
     this.vertices = new Map();   // key: "vX,Y" → vertex data  
     this.edges = new Map();      // key: "eX1,Y1_X2,Y2" → edge data
     this.robberHex = null;       // {q, r} of the robber/pirate position
-    this.HEX_SIZE = 50;         // pixel size for vertex calculations
+    this.HEX_SIZE = 72;         // pixel size for vertex calculations
     this.generateCatanBoard();
     this.computeVerticesAndEdges();
   }
