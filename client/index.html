@@ -130,22 +130,22 @@
       <!-- Resource Panel (Left) -->
       <div class="hud-resources" id="hud-resources">
         <div class="resource" id="res-wood">
-          <span class="res-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/wood_icon_large.png" alt="Wood"></span>
+          <span class="res-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/wood_counter.png" alt="Wood"></span>
           <span class="res-val">0</span>
           <span class="res-label">Wood</span>
         </div>
         <div class="resource" id="res-stone">
-          <span class="res-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/stone_icon_large.png" alt="Stone"></span>
+          <span class="res-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/stone_counter.png" alt="Stone"></span>
           <span class="res-val">0</span>
           <span class="res-label">Stone</span>
         </div>
         <div class="resource" id="res-iron">
-          <span class="res-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/iron_icon_large.png" alt="Iron"></span>
+          <span class="res-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/iron_counter.png" alt="Iron"></span>
           <span class="res-val">0</span>
           <span class="res-label">Iron</span>
         </div>
         <div class="resource" id="res-gold">
-          <span class="res-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/gold_icon_large.png" alt="Gold"></span>
+          <span class="res-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/gold_counter.png" alt="Gold"></span>
           <span class="res-val">0</span>
           <span class="res-label">Gold</span>
         </div>
@@ -209,6 +209,10 @@
           <span class="action-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/destroy_icon.png" alt="Navy"></span>
           <span><span class="action-label">Donanma</span><br><span class="action-cost">1⛏️ 1🍞 1🪙</span></span>
         </button>
+        <button class="action-btn" id="btn-buy-devcard" title="1 Iron + 1 Food + 1 Gold">
+          <span class="action-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/victory_points_icon_large.png" alt="DevCard"></span>
+          <span><span class="action-label">Gelişim Kartı</span><br><span class="action-cost">1⛏️ 1🍞 1🪙</span></span>
+        </button>
         <button class="action-btn end-turn" id="btn-end-turn">
           <span class="action-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/command_confirm_icon.png" alt="End"></span>
           <span class="action-label">Turu Bitir</span>
@@ -235,11 +239,23 @@
         <div style="display:flex;gap:16px;">
           <div style="flex:1;">
             <p style="font-size:0.75rem;font-weight:700;margin-bottom:6px;color:var(--accent-red);">GIVE (4x)</p>
-            <div id="trade-give" style="display:flex;flex-direction:column;gap:4px;"></div>
+            <select id="bank-give-select" class="input-room" style="width:100%;margin-bottom:10px;">
+              <option value="wood">🪵 Wood</option>
+              <option value="stone">🪨 Stone</option>
+              <option value="iron">⛏️ Iron</option>
+              <option value="gold">🪙 Gold</option>
+              <option value="food">🍞 Food</option>
+            </select>
           </div>
           <div style="flex:1;">
             <p style="font-size:0.75rem;font-weight:700;margin-bottom:6px;color:var(--accent-green);">RECEIVE (1x)</p>
-            <div id="trade-receive" style="display:flex;flex-direction:column;gap:4px;"></div>
+            <select id="bank-receive-select" class="input-room" style="width:100%;">
+              <option value="wood">🪵 Wood</option>
+              <option value="stone">🪨 Stone</option>
+              <option value="iron">⛏️ Iron</option>
+              <option value="gold">🪙 Gold</option>
+              <option value="food">🍞 Food</option>
+            </select>
           </div>
         </div>
         <div class="trade-actions">
@@ -277,6 +293,17 @@
           <button class="btn-modal btn-cancel" id="btn-p2p-cancel">İptal</button>
           <button class="btn-modal btn-confirm" id="btn-p2p-send">Teklif Gönder</button>
         </div>
+        
+        <!-- Active Trade Responses for Proposer -->
+        <div id="proposer-responses-section" class="hidden" style="margin-top: 16px; border-top: 1px solid var(--border-glow); padding-top: 12px;">
+          <h4 style="font-size:0.85rem; color:var(--accent-cyan); margin-bottom:8px;">Gelen Yanıtlar (Bekleniyor...)</h4>
+          <div id="proposer-responses-list" style="display:flex; flex-direction:column; gap:8px; max-height:150px; overflow-y:auto;">
+            <!-- Dynamic Responses -->
+          </div>
+          <div class="trade-actions" style="margin-top:12px;">
+            <button class="btn-modal btn-cancel" id="btn-cancel-active-trade">Pazarlığı Kapat</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -286,9 +313,40 @@
     <div class="trade-offer-card">
       <h4 id="trade-offer-title">Takas Teklifi</h4>
       <p id="trade-offer-details"></p>
-      <div class="trade-actions">
+      <div class="trade-actions" id="trade-offer-main-actions">
         <button class="btn-modal btn-cancel" id="btn-reject-trade">Reddet</button>
+        <button class="btn-modal btn-cancel" id="btn-show-counter" style="background:var(--accent-orange);color:#1e293b;">Karşı Teklif</button>
         <button class="btn-modal btn-confirm" id="btn-accept-trade">Kabul Et</button>
+      </div>
+
+      <!-- Counter Offer Picker (Hidden initially) -->
+      <div id="counter-offer-section" class="hidden" style="margin-top: 12px; border-top: 1px solid var(--border-glow); padding-top: 12px;">
+        <div style="display:flex;gap:12px;margin-bottom:12px;">
+          <div style="flex:1;">
+            <p style="font-size:0.7rem;font-weight:700;color:var(--accent-red);margin-bottom:4px;">VERECEĞİNİZ</p>
+            <div class="trade-resource-picker" id="counter-give">
+              <div class="trade-res-row" data-res="wood"><span>🪵</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="stone"><span>🪨</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="iron"><span>⛏️</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="gold"><span>🪙</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="food"><span>🍞</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+            </div>
+          </div>
+          <div style="flex:1;">
+            <p style="font-size:0.7rem;font-weight:700;color:var(--accent-green);margin-bottom:4px;">İSTEDİĞİNİZ</p>
+            <div class="trade-resource-picker" id="counter-receive">
+              <div class="trade-res-row" data-res="wood"><span>🪵</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="stone"><span>🪨</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="iron"><span>⛏️</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="gold"><span>🪙</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="food"><span>🍞</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+            </div>
+          </div>
+        </div>
+        <div class="trade-actions">
+          <button class="btn-modal btn-cancel" id="btn-cancel-counter">Geri</button>
+          <button class="btn-modal btn-confirm" id="btn-send-counter">Teklifi Gönder</button>
+        </div>
       </div>
     </div>
   </div>

@@ -41,6 +41,12 @@ class GameEngine {
     this.setupRound = 0;    // 0 = first round, 1 = second round
     this.setupStep = 'village'; // 'village' | 'road'
 
+    // Special Titles
+    this.longestRoadPlayerId = null;
+    this.longestRoadLength = 4; // Must be >= 5
+    this.largestArmyPlayerId = null;
+    this.largestArmyCount = 2; // Must be >= 3
+
     // Timer
     this.timer = null;
     this.timeRemaining = 0;
@@ -138,6 +144,8 @@ class GameEngine {
         return this._handleEndTurn(player, players);
       case 'BUY_NAVY_ATTACK':
         return this._handleBuyNavyAttack(player, players);
+      case 'BUY_DEV_CARD':
+        return this._handleBuyDevCard(player, players);
       default:
         return { success: false, error: 'Unknown command' };
     }
@@ -250,6 +258,9 @@ class GameEngine {
       player.roads.push(edgeId);
       this.events.push({ type: 'ROAD_BUILT', playerId: player.id, edgeId });
 
+      this._updateLongestRoad(players);
+      this._checkVictory(player, players);
+
       this.broadcast('road_built', { edgeId, playerId: player.id, playerColor: player.color });
       this._broadcastState(players);
       return { success: true };
@@ -285,10 +296,48 @@ class GameEngine {
     if (!player.canAfford(COSTS.navy_attack)) return { success: false, error: 'Cannot afford navy attack' };
 
     player.spendCost(COSTS.navy_attack);
+    player.knightsPlayed++;
     this.events.push({ type: 'NAVY_ATTACK_BOUGHT', playerId: player.id });
     
+    this._updateLargestArmy(players);
+    this._checkVictory(player, players);
+
     // Change phase to robber so the player can place the Navy (Robber)
     this.currentPhase = 'ROBBER';
+    this._broadcastState(players);
+    return { success: true };
+  }
+
+  _handleBuyDevCard(player, players) {
+    if (this.currentPhase !== 'GAMEPLAY') return { success: false, error: 'Not in build phase' };
+
+    const cost = { iron: 1, food: 1, gold: 1 };
+    if (!player.canAfford(cost)) return { success: false, error: 'Cannot afford dev card' };
+
+    player.spendCost(cost);
+    
+    // 33% chance for VP, 67% chance for 2 random resources (Year of Plenty)
+    const rand = Math.random();
+    if (rand < 0.33) {
+      player.devCardsVp++;
+      this.events.push({ type: 'DEV_CARD_BOUGHT', playerId: player.id, card: 'Victory Point' });
+    } else {
+      const types = ['wood', 'stone', 'iron', 'gold', 'food'];
+      const r1 = types[Math.floor(Math.random() * types.length)];
+      const r2 = types[Math.floor(Math.random() * types.length)];
+      player.addResource(r1, 1);
+      player.addResource(r2, 1);
+      this.events.push({ type: 'DEV_CARD_BOUGHT', playerId: player.id, card: 'Year of Plenty' });
+      this.broadcast('resources_updated', {
+        playerId: player.id,
+        login: player.login,
+        playerResources: player.resources,
+        gained: [{ type: r1, amount: 1 }, { type: r2, amount: 1 }],
+        reason: 'dev_card'
+      });
+    }
+
+    this._checkVictory(player, players);
     this._broadcastState(players);
     return { success: true };
   }
@@ -467,9 +516,31 @@ class GameEngine {
 
   // ─── VICTORY CHECK ─────────────────────────────────────────
 
+  _updateLongestRoad(players) {
+    // Simple approximation: player with most roads >= 5
+    for (const p of players) {
+      if (p.roads.length > this.longestRoadLength) {
+        this.longestRoadLength = p.roads.length;
+        this.longestRoadPlayerId = p.id;
+      }
+    }
+  }
+
+  _updateLargestArmy(players) {
+    for (const p of players) {
+      if (p.knightsPlayed > this.largestArmyCount) {
+        this.largestArmyCount = p.knightsPlayed;
+        this.largestArmyPlayerId = p.id;
+      }
+    }
+  }
+
   _checkVictory(player, players) {
-    const vp = player.calculateVP();
-    if (vp >= config.GAME.VP_WIN) {
+    // Update all VPs first
+    players.forEach(p => p.calculateVP(this.longestRoadPlayerId, this.largestArmyPlayerId));
+    
+    const vp = player.victoryPoints;
+    if (vp >= 10) { // Changed to 10 points
       this._endGame(player, players);
     }
   }
@@ -513,6 +584,8 @@ class GameEngine {
   // ─── STATE BROADCAST ───────────────────────────────────────
 
   _broadcastState(players) {
+    // Ensure VPs are up to date before broadcast
+    players.forEach(p => p.calculateVP(this.longestRoadPlayerId, this.largestArmyPlayerId));
     this.broadcast('game:stateUpdate', this.getFullState(players));
   }
 
@@ -532,6 +605,8 @@ class GameEngine {
       lastDice: this.lastDice,
       setupRound: this.setupRound,
       setupStep: this.setupStep,
+      longestRoadPlayerId: this.longestRoadPlayerId,
+      largestArmyPlayerId: this.largestArmyPlayerId,
       grid: this.grid.toJSON(),
       players: players.map(p => p.toPublicJSON()),
       events: this.events.slice(-10),
@@ -560,10 +635,12 @@ class GameEngine {
 
     const tradeId = uuidv4();
     activeTrades.set(tradeId, {
+      tradeId,
       proposerId: playerId,
       proposerLogin: proposer.login,
       give,
       receive,
+      responses: {} // map of responderId -> { type: 'ACCEPT'|'REJECT'|'COUNTER', give, receive }
     });
 
     // Broadcast to everyone except proposer
@@ -578,39 +655,77 @@ class GameEngine {
     return { success: true, tradeId };
   }
 
-  handleTradeResponse(responderId, tradeId, accept) {
+  handleTradeResponse(responderId, tradeId, responseType, counterGive, counterReceive) {
     const trade = activeTrades.get(tradeId);
-    if (!trade) return { success: false, error: 'Trade expired' };
+    if (!trade) return { success: false, error: 'Trade expired or does not exist' };
+    
+    const players = this.room.getPlayers();
+    const responder = players.find(p => p.id === responderId);
+    if (!responder) return { success: false, error: 'Player not found' };
 
-    if (!accept) {
-      // Just a rejection — don't cancel the trade for others
-      return { success: true, message: 'Trade rejected' };
+    // If counter-offer or accept, verify responder has the resources THEY are giving
+    const giveObj = responseType === 'COUNTER' ? counterGive : trade.receive;
+    if (responseType !== 'REJECT') {
+      for (const [type, amount] of Object.entries(giveObj)) {
+        if ((responder.resources[type] || 0) < amount) {
+          return { success: false, error: `You don't have enough ${type}` };
+        }
+      }
     }
 
-    // Accept path
+    trade.responses[responderId] = {
+      responderLogin: responder.login,
+      type: responseType, // 'ACCEPT' | 'REJECT' | 'COUNTER'
+      give: responseType === 'COUNTER' ? counterGive : trade.receive,
+      receive: responseType === 'COUNTER' ? counterReceive : trade.give
+    };
+
+    // Send the response update back to the proposer
+    this.broadcast('trade_response_update', {
+      tradeId,
+      responderId,
+      responderLogin: responder.login,
+      type: responseType,
+      give: trade.responses[responderId].give,
+      receive: trade.responses[responderId].receive
+    });
+
+    return { success: true };
+  }
+
+  acceptTradeResponse(proposerId, tradeId, responderId) {
+    const trade = activeTrades.get(tradeId);
+    if (!trade) return { success: false, error: 'Trade expired' };
+    if (trade.proposerId !== proposerId) return { success: false, error: 'Not your trade' };
+
+    const response = trade.responses[responderId];
+    if (!response || response.type === 'REJECT') return { success: false, error: 'Invalid response selected' };
+
     const players = this.room.getPlayers();
-    const proposer = players.find(p => p.id === trade.proposerId);
+    const proposer = players.find(p => p.id === proposerId);
     const responder = players.find(p => p.id === responderId);
     if (!proposer || !responder) return { success: false, error: 'Player not found' };
 
-    // Re-verify both sides have the resources
-    for (const [type, amount] of Object.entries(trade.give)) {
+    // Re-verify proposer has resources (they are giving `response.receive`)
+    for (const [type, amount] of Object.entries(response.receive)) {
       if ((proposer.resources[type] || 0) < amount) {
         return { success: false, error: `${proposer.login} no longer has enough ${type}` };
       }
     }
-    for (const [type, amount] of Object.entries(trade.receive)) {
+
+    // Re-verify responder has resources (they are giving `response.give`)
+    for (const [type, amount] of Object.entries(response.give)) {
       if ((responder.resources[type] || 0) < amount) {
-        return { success: false, error: `You don't have enough ${type}` };
+        return { success: false, error: `${responder.login} no longer has enough ${type}` };
       }
     }
 
     // Execute trade
-    for (const [type, amount] of Object.entries(trade.give)) {
+    for (const [type, amount] of Object.entries(response.receive)) {
       proposer.resources[type] -= amount;
       responder.resources[type] = (responder.resources[type] || 0) + amount;
     }
-    for (const [type, amount] of Object.entries(trade.receive)) {
+    for (const [type, amount] of Object.entries(response.give)) {
       responder.resources[type] -= amount;
       proposer.resources[type] = (proposer.resources[type] || 0) + amount;
     }
@@ -623,8 +738,8 @@ class GameEngine {
       proposerLogin: trade.proposerLogin,
       responderId,
       responderLogin: responder.login,
-      give: trade.give,
-      receive: trade.receive,
+      give: response.receive, // What proposer gave
+      receive: response.give, // What proposer received
     });
 
     // Send updated resources
@@ -645,6 +760,45 @@ class GameEngine {
 
     this._broadcastState(players);
     return { success: true };
+  }
+
+  bankTrade(playerId, giveType, receiveType) {
+    if (this.currentPhase !== 'GAMEPLAY') return { success: false, error: 'Cannot trade now' };
+    if (this.turnOrder[this.currentTurn] !== playerId) return { success: false, error: 'Not your turn' };
+
+    const players = this.room.getPlayers();
+    const player = players.find(p => p.id === playerId);
+    if (!player) return { success: false, error: 'Player not found' };
+
+    if ((player.resources[giveType] || 0) < 4) {
+      return { success: false, error: `You need 4 ${giveType} for bank trade` };
+    }
+
+    player.resources[giveType] -= 4;
+    player.addResource(receiveType, 1);
+
+    this.events.push({ type: 'BANK_TRADE', playerId: player.id, give: giveType, receive: receiveType });
+
+    this.broadcast('resources_updated', {
+      playerId: player.id,
+      login: player.login,
+      playerResources: player.resources,
+      gained: [{ type: receiveType, amount: 1 }],
+      reason: 'bank_trade'
+    });
+
+    this._broadcastState(players);
+    return { success: true };
+  }
+
+  cancelTrade(playerId, tradeId) {
+    const trade = activeTrades.get(tradeId);
+    if (trade && trade.proposerId === playerId) {
+      activeTrades.delete(tradeId);
+      this.broadcast('trade_cancelled', { tradeId });
+      return { success: true };
+    }
+    return { success: false, error: 'Invalid trade' };
   }
 
   /**

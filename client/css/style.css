@@ -334,9 +334,14 @@ body {
 .resource {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 6px 10px; background: var(--bg-glass); border-radius: var(--radius-sm);
-  border: 1px solid var(--border-glow); min-width: 56px; transition: border-color .2s;
+  border: 1px solid var(--border-glow); border-top-width: 3px; min-width: 56px; transition: border-color .2s;
 }
 .resource:hover { border-color: var(--accent-cyan); }
+#res-wood { border-top-color: #a47754; background: linear-gradient(180deg, rgba(164,119,84,0.15) 0%, rgba(0,0,0,0.5) 100%); }
+#res-stone { border-top-color: #94a3b8; background: linear-gradient(180deg, rgba(148,163,184,0.15) 0%, rgba(0,0,0,0.5) 100%); }
+#res-iron { border-top-color: #f1f5f9; background: linear-gradient(180deg, rgba(241,245,249,0.15) 0%, rgba(0,0,0,0.5) 100%); }
+#res-gold { border-top-color: #fbbf24; background: linear-gradient(180deg, rgba(251,191,36,0.15) 0%, rgba(0,0,0,0.5) 100%); }
+#res-food { border-top-color: #fca5a5; background: linear-gradient(180deg, rgba(252,165,165,0.15) 0%, rgba(0,0,0,0.5) 100%); }
 .res-icon { width: 28px; height: 28px; display: block; }
 .res-icon img { width: 100%; height: 100%; object-fit: contain; }
 .res-val { font-family: var(--font-mono); font-weight: 800; font-size: 1rem; color: #fff; }

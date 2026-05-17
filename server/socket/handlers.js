@@ -116,10 +116,37 @@ function registerSocketHandlers(io, socket, roomManager, playerManager) {
     }
   });
 
-  socket.on('trade_response', ({ tradeId, accept }) => {
+  socket.on('trade_response', ({ tradeId, responseType, counterGive, counterReceive }) => {
     const room = roomManager.getPlayerRoom(user.id);
     if (!room || !room.game) return;
-    const result = room.game.handleTradeResponse(user.id, tradeId, accept);
+    const result = room.game.handleTradeResponse(user.id, tradeId, responseType, counterGive, counterReceive);
+    if (!result.success) {
+      socket.emit(E.ERROR, { code: 'TRADE_FAILED', message: result.error });
+    }
+  });
+
+  socket.on('accept_trade_response', ({ tradeId, responderId }) => {
+    const room = roomManager.getPlayerRoom(user.id);
+    if (!room || !room.game) return;
+    const result = room.game.acceptTradeResponse(user.id, tradeId, responderId);
+    if (!result.success) {
+      socket.emit(E.ERROR, { code: 'TRADE_FAILED', message: result.error });
+    }
+  });
+
+  socket.on('bank_trade', ({ giveType, receiveType }) => {
+    const room = roomManager.getPlayerRoom(user.id);
+    if (!room || !room.game) return;
+    const result = room.game.bankTrade(user.id, giveType, receiveType);
+    if (!result.success) {
+      socket.emit(E.ERROR, { code: 'TRADE_FAILED', message: result.error });
+    }
+  });
+
+  socket.on('cancel_trade', ({ tradeId }) => {
+    const room = roomManager.getPlayerRoom(user.id);
+    if (!room || !room.game) return;
+    const result = room.game.cancelTrade(user.id, tradeId);
     if (!result.success) {
       socket.emit(E.ERROR, { code: 'TRADE_FAILED', message: result.error });
     }

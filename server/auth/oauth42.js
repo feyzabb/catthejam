@@ -135,7 +135,9 @@ router.get('/callback', async (req, res) => {
     console.log(`[OAuth] Player logged in: ${player.login} (${coalition.name})`);
 
     // Redirect to lobby
-    res.redirect('/');
+    req.session.save(() => {
+      res.redirect('/');
+    });
   } catch (err) {
     console.error('[OAuth] Error during authentication:', err);
     res.status(500).json({ error: 'Authentication failed' });
@@ -276,7 +278,9 @@ router.post('/direct-login', async (req, res) => {
     };
 
     console.log(`[OAuth] Login OK: ${player.login} (${coalition.name})`);
-    res.json({ success: true });
+    req.session.save(() => {
+      res.json({ success: true });
+    });
   } catch (err) {
     console.error('[OAuth] Direct login error:', err);
     res.status(500).json({ error: 'Authentication failed' });
@@ -324,7 +328,9 @@ router.get('/mock/:login', (req, res) => {
   };
 
   console.log(`[Mock] Instant login: ${login}`);
-  res.redirect('/');
+  req.session.save(() => {
+    res.redirect('/');
+  });
 });
 
 /**

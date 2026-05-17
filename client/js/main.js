@@ -32,7 +32,7 @@ function showScreen(name) {
 // ─── AUTH CHECK ────────────────────────────────────────────
 async function checkAuth() {
   try {
-    const res = await fetch('/auth/42/me');
+    const res = await fetch('/auth/42/me?t=' + Date.now());
     const data = await res.json();
     if (data.authenticated) {
       state.user = data.user;
@@ -203,8 +203,15 @@ function connectSocket() {
 
   // ─── TRADE SOCKET EVENTS ─────────────────────────────────
   s.on('trade_proposed', (data) => {
-    // Don't show popup to the proposer
-    if (data.proposerId === state.user.id) return;
+    if (data.proposerId === state.user.id) {
+      // Proposer sees their trade active
+      state._activeProposerTradeId = data.tradeId;
+      $('#proposer-responses-list').innerHTML = '';
+      $('#proposer-responses-section').classList.remove('hidden');
+      $('#btn-p2p-send').disabled = true;
+      $('#btn-p2p-send').textContent = 'Teklif Bekleniyor...';
+      return;
+    }
 
     state._pendingTradeId = data.tradeId;
     const giveStr = Object.entries(data.give).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
@@ -212,17 +219,77 @@ function connectSocket() {
     $('#trade-offer-title').textContent = `${data.proposerLogin} takas teklif ediyor`;
     $('#trade-offer-details').textContent = `Veriyor: ${giveStr} — İstiyor: ${receiveStr}`;
     $('#trade-offer-popup').classList.remove('hidden');
+    $('#trade-offer-main-actions').classList.remove('hidden');
+    $('#counter-offer-section').classList.add('hidden');
     addEventLog(`🤝 ${data.proposerLogin} takas teklifinde bulundu!`);
+  });
+
+  s.on('trade_response_update', (data) => {
+    // Only the proposer cares about this
+    if (state._activeProposerTradeId === data.tradeId) {
+      const list = $('#proposer-responses-list');
+      const existing = list.querySelector(`.response-item[data-id="${data.responderId}"]`);
+      if (existing) existing.remove();
+
+      const el = document.createElement('div');
+      el.className = 'response-item';
+      el.dataset.id = data.responderId;
+      el.style.cssText = 'background:rgba(255,255,255,0.05); padding:8px; border-radius:4px; display:flex; justify-content:space-between; align-items:center;';
+
+      let text = '';
+      if (data.type === 'REJECT') {
+        text = `<span style="color:var(--accent-red)">${data.responderLogin} reddetti</span>`;
+      } else if (data.type === 'ACCEPT') {
+        text = `<span style="color:var(--accent-green)">${data.responderLogin} kabul etti!</span>`;
+      } else if (data.type === 'COUNTER') {
+        const cGive = Object.entries(data.give).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
+        const cRec = Object.entries(data.receive).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
+        text = `<span style="color:var(--accent-orange);font-size:0.8rem;">${data.responderLogin} (Karşı): İster ${cGive}, Verir ${cRec}</span>`;
+      }
+
+      el.innerHTML = `<div>${text}</div>`;
+      
+      if (data.type !== 'REJECT') {
+        const btn = document.createElement('button');
+        btn.className = 'btn-modal btn-confirm';
+        btn.style.padding = '4px 8px';
+        btn.textContent = 'Onayla';
+        btn.onclick = () => {
+          s.emit('accept_trade_response', { tradeId: data.tradeId, responderId: data.responderId });
+        };
+        el.appendChild(btn);
+      }
+
+      list.appendChild(el);
+    }
   });
 
   s.on('trade_completed', (data) => {
     const giveStr = Object.entries(data.give).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
     const receiveStr = Object.entries(data.receive).filter(([,v]) => v > 0).map(([k,v]) => `${v} ${k}`).join(', ');
     addEventLog(`✅ ${data.proposerLogin} ↔ ${data.responderLogin}: ${giveStr} <-> ${receiveStr}`);
-    $('#trade-offer-popup').classList.add('hidden');
-    $('#modal-trade').classList.add('hidden');
+    _resetTradeUI();
   });
-}
+
+  s.on('trade_cancelled', (data) => {
+    addEventLog(`❌ Takas iptal edildi.`);
+    _resetTradeUI();
+  });
+
+  function _resetTradeUI() {
+    $('#trade-offer-popup')?.classList.add('hidden');
+    $('#modal-trade')?.classList.add('hidden');
+    $('#proposer-responses-section')?.classList.add('hidden');
+    $('#proposer-responses-list').innerHTML = '';
+    const sendBtn = $('#btn-p2p-send');
+    if (sendBtn) {
+      sendBtn.disabled = false;
+      sendBtn.textContent = 'Teklif Gönder';
+    }
+    state._activeProposerTradeId = null;
+    state._pendingTradeId = null;
+    $$('#p2p-give .res-count, #p2p-receive .res-count, #counter-give .res-count, #counter-receive .res-count').forEach(el => el.textContent = '0');
+  }
 
 // ─── ROOM LIST & LOBBY ────────────────────────────────────
 function renderRoomList(rooms) {
@@ -335,6 +402,30 @@ function renderGameState(gs) {
   ctx.save();
   ctx.translate(camera.x, camera.y);
   ctx.scale(camera.zoom, camera.zoom);
+
+  // 0. Draw Ocean Background
+  const seaImg = GameAssets.sea;
+  if (seaImg && seaImg.complete) {
+    const w = SQRT3 * HEX_SIZE * 0.97;
+    const h = 2 * HEX_SIZE * 0.97;
+    const occupiedHexes = new Set(gs.grid.hexes.map(h => `${h.q},${h.r}`));
+    
+    // Draw a wide grid of sea hexes
+    for (let q = -15; q <= 15; q++) {
+      for (let r = -15; r <= 15; r++) {
+        // Hexagonal bounds check to make a large circle
+        if (Math.abs(q) + Math.abs(q + r) + Math.abs(r) <= 30) {
+          if (!occupiedHexes.has(`${q},${r}`)) {
+            const { x, y } = getHexPixel(q, r);
+            // Draw slightly faded for depth
+            ctx.globalAlpha = 0.6;
+            ctx.drawImage(seaImg, x - w/2, y - h/2, w, h);
+            ctx.globalAlpha = 1.0;
+          }
+        }
+      }
+    }
+  }
 
   // 1. Draw Hexes (Islands)
   for (const hex of gs.grid.hexes) {
@@ -565,6 +656,11 @@ function handleCanvasClick(px, py) {
       // We will place it when the phase shifts to robber automatically
     }
   }
+  else if (state.selectedAction === 'BUY_DEV_CARD') {
+    state.socket.emit('game:command', { type: 'BUY_DEV_CARD' });
+    state.selectedAction = null;
+    $$('.action-btn').forEach(b => b.classList.remove('active'));
+  }
 
   // Deselect after click (unless we just bought a navy attack and need to place it)
   if (state.selectedAction !== 'NAVY_ATTACK' || state.gameState.phase === 'ROBBER') {
@@ -601,10 +697,12 @@ function updateHUD(gs) {
   // Styled player cards
   $('#hud-players').innerHTML = gs.players.map(p => {
     const isActive = p.id === gs.currentPlayerId;
+    const isLongestRoad = p.id === gs.longestRoadPlayerId;
+    const isLargestArmy = p.id === gs.largestArmyPlayerId;
     const totalCards = Object.values(p.resources).reduce((a,b) => a+b, 0);
     return `<div class="hud-player ${isActive ? 'active-turn' : ''}" style="border-color:${p.color}">
       <span class="p-name">${p.login}</span>
-      <span class="p-vp">⭐${p.victoryPoints}</span>
+      <span class="p-vp">⭐${p.victoryPoints}${isLongestRoad ? ' 🛤️' : ''}${isLargestArmy ? ' ⚔️' : ''}</span>
       <span class="p-cards">🃏${totalCards}</span>
     </div>`;
   }).join('');
@@ -786,6 +884,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'btn-build-village': 'BUILD_VILLAGE',
     'btn-upgrade-city': 'UPGRADE_CITY',
     'btn-navy-attack': 'NAVY_ATTACK',
+    'btn-buy-devcard': 'BUY_DEV_CARD',
   };
 
   Object.entries(actionBtns).forEach(([btnId, action]) => {
@@ -830,6 +929,9 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#btn-login')?.addEventListener('click', async () => {
     const loginName = $('#intra-login-input').value.trim();
     if (!loginName) return;
+    const errorEl = $('#login-error');
+    if (errorEl) errorEl.style.display = 'none';
+
     try {
       const res = await fetch('/auth/42/direct-login', {
         method: 'POST',
@@ -837,8 +939,20 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({ login: loginName })
       });
       const data = await res.json();
-      if (data.success) await checkAuth();
-    } catch (e) {}
+      if (data.success) {
+        window.location.reload(); // Reload the whole page to ensure fresh state
+      } else {
+        if (errorEl) {
+          errorEl.textContent = data.error || 'Giriş yapılamadı.';
+          errorEl.style.display = 'block';
+        }
+      }
+    } catch (e) {
+      if (errorEl) {
+        errorEl.textContent = 'Sunucuya bağlanılamadı.';
+        errorEl.style.display = 'block';
+      }
+    }
   });
 
   // Room creation
@@ -863,7 +977,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ─── P2P Trade +/- Buttons ─────────────────────────────
-  ['p2p-give', 'p2p-receive'].forEach(containerId => {
+  ['p2p-give', 'p2p-receive', 'counter-give', 'counter-receive'].forEach(containerId => {
     const container = $(`#${containerId}`);
     if (!container) return;
     container.querySelectorAll('.res-plus').forEach(btn => {
@@ -879,6 +993,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (val > 0) countEl.textContent = val - 1;
       });
     });
+  });
+
+  // ─── Bank Trade Action ─────────────────────────────────
+  $('#btn-trade-confirm')?.addEventListener('click', () => {
+    const give = $('#bank-give-select').value;
+    const receive = $('#bank-receive-select').value;
+    if (give === receive) {
+      addEventLog('❌ Farklı kaynaklar seçmelisiniz.');
+      return;
+    }
+    state.socket.emit('bank_trade', { giveType: give, receiveType: receive });
+    $('#modal-trade').classList.add('hidden');
   });
 
   // ─── P2P Trade Send ────────────────────────────────────
@@ -898,9 +1024,6 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     state.socket.emit('propose_trade', { give, receive });
-    $('#modal-trade').classList.add('hidden');
-    // Reset counts
-    $$('#p2p-give .res-count, #p2p-receive .res-count').forEach(el => el.textContent = '0');
     addEventLog('📤 Takas teklifiniz gönderildi!');
   });
 
@@ -908,10 +1031,16 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#modal-trade').classList.add('hidden');
   });
 
+  $('#btn-cancel-active-trade')?.addEventListener('click', () => {
+    if (state._activeProposerTradeId) {
+      state.socket.emit('cancel_trade', { tradeId: state._activeProposerTradeId });
+    }
+  });
+
   // ─── Incoming Trade Response ────────────────────────────
   $('#btn-accept-trade')?.addEventListener('click', () => {
     if (state._pendingTradeId) {
-      state.socket.emit('trade_response', { tradeId: state._pendingTradeId, accept: true });
+      state.socket.emit('trade_response', { tradeId: state._pendingTradeId, responseType: 'ACCEPT' });
       state._pendingTradeId = null;
     }
     $('#trade-offer-popup').classList.add('hidden');
@@ -919,7 +1048,44 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('#btn-reject-trade')?.addEventListener('click', () => {
     if (state._pendingTradeId) {
-      state.socket.emit('trade_response', { tradeId: state._pendingTradeId, accept: false });
+      state.socket.emit('trade_response', { tradeId: state._pendingTradeId, responseType: 'REJECT' });
+      state._pendingTradeId = null;
+    }
+    $('#trade-offer-popup').classList.add('hidden');
+  });
+
+  $('#btn-show-counter')?.addEventListener('click', () => {
+    $('#trade-offer-main-actions').classList.add('hidden');
+    $('#counter-offer-section').classList.remove('hidden');
+  });
+
+  $('#btn-cancel-counter')?.addEventListener('click', () => {
+    $('#counter-offer-section').classList.add('hidden');
+    $('#trade-offer-main-actions').classList.remove('hidden');
+  });
+
+  $('#btn-send-counter')?.addEventListener('click', () => {
+    const give = {};
+    const receive = {};
+    $('#counter-give').querySelectorAll('.trade-res-row').forEach(row => {
+      const count = parseInt(row.querySelector('.res-count').textContent);
+      if (count > 0) give[row.dataset.res] = count;
+    });
+    $('#counter-receive').querySelectorAll('.trade-res-row').forEach(row => {
+      const count = parseInt(row.querySelector('.res-count').textContent);
+      if (count > 0) receive[row.dataset.res] = count;
+    });
+    if (Object.keys(give).length === 0 || Object.keys(receive).length === 0) {
+      addEventLog('❌ Karşı teklif için kaynak seçin!');
+      return;
+    }
+    if (state._pendingTradeId) {
+      state.socket.emit('trade_response', { 
+        tradeId: state._pendingTradeId, 
+        responseType: 'COUNTER',
+        counterGive: give,
+        counterReceive: receive
+      });
       state._pendingTradeId = null;
     }
     $('#trade-offer-popup').classList.add('hidden');
