@@ -422,7 +422,16 @@ function initGameCanvas() {
   requestAnimationFrame(() => {
     resizeCanvas();
     camera = { x: canvas.width / 2, y: canvas.height / 2.5, zoom: 1.0 };
-    if (state.gameState) renderGameState(state.gameState);
+    
+    // Start continuous animation loop for dynamic water
+    if (state.animationId) cancelAnimationFrame(state.animationId);
+    function loop() {
+      if (state.gameState && screens.game.classList.contains('active')) {
+        renderGameState(state.gameState);
+      }
+      state.animationId = requestAnimationFrame(loop);
+    }
+    state.animationId = requestAnimationFrame(loop);
   });
 
   let dragging = false, lastX, lastY;
@@ -469,29 +478,69 @@ function renderGameState(gs) {
   ctx.translate(camera.x, camera.y);
   ctx.scale(camera.zoom, camera.zoom);
 
-  // 0. Draw Ocean Background
-  const seaImg = GameAssets.sea;
-  if (seaImg && seaImg.complete) {
-    const w = SQRT3 * HEX_SIZE * 0.97;
-    const h = 2 * HEX_SIZE * 0.97;
-    const occupiedHexes = new Set(gs.grid.hexes.map(h => `${h.q},${h.r}`));
+  // 0. Draw Dynamic Water Plane (Procedural Ocean Waves & Caustics)
+  const time = Date.now() * 0.001;
+  
+  // A. Deep backdrop radial gradient (Vibrant, high-fidelity marine blue)
+  const deepGrad = ctx.createRadialGradient(0, 0, 100, 0, 0, 1500);
+  deepGrad.addColorStop(0, '#1e477a'); // rich ocean teal-blue
+  deepGrad.addColorStop(0.5, '#102647'); // deep dark blue
+  deepGrad.addColorStop(1, '#071328'); // elegant black-blue abyss
+  ctx.fillStyle = deepGrad;
+  ctx.fillRect(-3000, -3000, 6000, 6000);
+
+  // B. Draw High-Res Hand-Painted Sea Background (Deniz.png)
+  if (GameAssets.deniz && GameAssets.deniz.complete) {
+    // Elegant, slow wave scale-sway motion to breathe life into the sea background
+    const waveScale = 1.05 + Math.sin(time * 0.15) * 0.02;
+    const waveAngle = Math.cos(time * 0.12) * 0.015;
+    const waveX = Math.sin(time * 0.1) * 20;
+    const waveY = Math.cos(time * 0.08) * 15;
+
+    ctx.save();
+    ctx.translate(waveX, waveY);
+    ctx.rotate(waveAngle);
     
-    // Draw a wide grid of sea hexes
-    for (let q = -15; q <= 15; q++) {
-      for (let r = -15; r <= 15; r++) {
-        // Hexagonal bounds check to make a large circle
-        if (Math.abs(q) + Math.abs(q + r) + Math.abs(r) <= 30) {
-          if (!occupiedHexes.has(`${q},${r}`)) {
-            const { x, y } = getHexPixel(q, r);
-            // Draw slightly faded for depth
-            ctx.globalAlpha = 0.6;
-            ctx.drawImage(seaImg, x - w/2, y - h/2, w, h);
-            ctx.globalAlpha = 1.0;
-          }
-        }
-      }
+    // Draw broad 5000x5000 high-fidelity background image centered
+    const size = 5000 * waveScale;
+    ctx.drawImage(GameAssets.deniz, -size/2, -size/2, size, size);
+    ctx.restore();
+  } else {
+    // High-fidelity fallback blue radial abyss if image is still loading
+    const deepGrad = ctx.createRadialGradient(0, 0, 100, 0, 0, 1500);
+    deepGrad.addColorStop(0, '#1e477a');
+    deepGrad.addColorStop(0.5, '#102647');
+    deepGrad.addColorStop(1, '#071328');
+    ctx.fillStyle = deepGrad;
+    ctx.fillRect(-3000, -3000, 6000, 6000);
+  }
+
+  // C. Draw Shimmering Top-Down Sun Caustics (Refracting light networks on the sea)
+  ctx.save();
+  ctx.strokeStyle = 'rgba(224, 242, 254, 0.08)'; // Soft sun-ray caustics
+  ctx.lineWidth = 2.5;
+  
+  const step = 200; // Elegant spacing for uncluttered caustics
+  for (let x = -2000; x <= 2000; x += step) {
+    for (let y = -2000; y <= 2000; y += step) {
+      const phase = (x * 0.003 + y * 0.005);
+      const t = time * 0.6 + phase;
+      
+      const wx = x + Math.cos(t * 0.7) * 35;
+      const wy = y + Math.sin(t * 0.5) * 35;
+      
+      // Dynamic, fluid refracting light ripples (top-down view, NO seagulls!)
+      ctx.beginPath();
+      ctx.moveTo(wx - 45, wy);
+      ctx.bezierCurveTo(
+        wx - 20, wy + Math.sin(t) * 15,
+        wx + 20, wy - Math.cos(t * 0.8) * 15,
+        wx + 45, wy
+      );
+      ctx.stroke();
     }
   }
+  ctx.restore();
 
   // 1. Draw Hexes (Islands)
   for (const hex of gs.grid.hexes) {
@@ -547,10 +596,16 @@ function renderGameState(gs) {
         const midX = (edge.v1.x + edge.v2.x) / 2;
         const midY = (edge.v1.y + edge.v2.y) / 2;
         
+        // Out-of-sync dynamic bobbing and rocking calculations
+        const phaseOffset = (midX * 0.03 + midY * 0.04);
+        const tBob = time * 2.2 + phaseOffset;
+        const bobY = Math.sin(tBob) * 2.5; // slow up-and-down wave floating
+        const rockAngle = Math.cos(tBob * 0.7) * 0.08; // gentle left-to-right rock angle
+        
         ctx.save();
-        ctx.translate(midX, midY);
-        // Add 90 degrees (Math.PI / 2) because ship assets usually point upwards
-        ctx.rotate(angle + Math.PI / 2);
+        ctx.translate(midX, midY + bobY);
+        // Add 90 degrees (Math.PI / 2) because ship assets usually point upwards + rocking
+        ctx.rotate(angle + Math.PI / 2 + rockAngle);
         const shipWidth = 32;
         const shipHeight = 48;
         ctx.drawImage(shipImg, -shipWidth / 2, -shipHeight / 2, shipWidth, shipHeight);
@@ -594,10 +649,10 @@ function renderGameState(gs) {
 
   // 4. Draw Highlights based on selected action or setup phase
   const action = state.selectedAction;
-  const step = gs.setupStep;
+  const setupStep = gs.setupStep;
   const isSetup = gs.phase === 'SETUP';
   
-  if (action === 'BUILD_VILLAGE' || action === 'UPGRADE_CITY' || (isSetup && step === 'village')) {
+  if (action === 'BUILD_VILLAGE' || action === 'UPGRADE_CITY' || (isSetup && setupStep === 'village')) {
     ctx.fillStyle = 'rgba(34, 197, 94, 0.6)'; // Green glow
     ctx.shadowColor = '#22C55E';
     ctx.shadowBlur = 15;
@@ -617,7 +672,7 @@ function renderGameState(gs) {
     ctx.shadowBlur = 0;
   }
 
-  if (action === 'BUILD_SHIP' || (isSetup && step === 'road')) {
+  if (action === 'BUILD_SHIP' || (isSetup && setupStep === 'road')) {
     ctx.strokeStyle = 'rgba(56, 189, 248, 0.8)'; // Blue glow
     ctx.shadowColor = '#38bdf8';
     ctx.shadowBlur = 10;
@@ -1016,6 +1071,69 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
       if (errorEl) {
         errorEl.textContent = 'Sunucuya bağlanılamadı.';
+        errorEl.style.display = 'block';
+      }
+    }
+  });
+
+  // Guest Coalition Picker click logic
+  $$('.coalition-choice').forEach(choice => {
+    choice.addEventListener('click', () => {
+      $$('.coalition-choice').forEach(c => {
+        c.classList.remove('active');
+        c.style.borderColor = 'transparent';
+        const cColor = c.getAttribute('data-color');
+        c.style.background = 'rgba(' + (cColor === '#3B82F6' ? '59,130,246' : cColor === '#EF4444' ? '239,68,68' : cColor === '#22C55E' ? '34,197,94' : '168,85,247') + ', 0.05)';
+      });
+      choice.classList.add('active');
+      const color = choice.getAttribute('data-color');
+      choice.style.borderColor = color;
+      choice.style.background = 'rgba(' + (color === '#3B82F6' ? '59,130,246' : color === '#EF4444' ? '239,68,68' : color === '#22C55E' ? '34,197,94' : '168,85,247') + ', 0.15)';
+    });
+  });
+
+  // Guest login button click
+  $('#btn-start-singleplayer')?.addEventListener('click', async () => {
+    const guestName = $('#guest-name-input').value.trim();
+    const errorEl = $('#guest-login-error');
+    if (errorEl) errorEl.style.display = 'none';
+
+    if (!guestName) {
+      if (errorEl) {
+        errorEl.textContent = 'Please enter a name.';
+        errorEl.style.display = 'block';
+      }
+      return;
+    }
+
+    const activeChoice = $('.coalition-choice.active');
+    const coalitionId = activeChoice ? activeChoice.getAttribute('data-id') : '1';
+    const coalitionName = activeChoice ? activeChoice.getAttribute('data-name') : 'The Order';
+    const coalitionColor = activeChoice ? activeChoice.getAttribute('data-color') : '#3B82F6';
+
+    try {
+      const res = await fetch('/auth/42/guest-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          login: guestName,
+          coalitionId,
+          coalitionName,
+          coalitionColor
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        window.location.reload();
+      } else {
+        if (errorEl) {
+          errorEl.textContent = data.error || 'Failed to start singleplayer match.';
+          errorEl.style.display = 'block';
+        }
+      }
+    } catch (e) {
+      if (errorEl) {
+        errorEl.textContent = 'Unable to connect to server.';
         errorEl.style.display = 'block';
       }
     }

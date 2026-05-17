@@ -15,6 +15,7 @@ class Player {
     this.displayName = userData.displayName;
     this.avatarUrl = userData.avatarUrl;
     this.socketId = socketId;
+    this.isBot = userData.isBot || false;
 
     // Coalition theming
     this.coalitionId = userData.coalitionId;
@@ -143,6 +144,7 @@ class Player {
       color: this.color,
       isReady: this.isReady,
       isConnected: this.isConnected,
+      isBot: this.isBot,
       resources: { ...this.resources },
       victoryPoints: this.victoryPoints, // Computed by GameEngine before broadcast
       villages: [...this.villages],

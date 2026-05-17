@@ -11,6 +11,62 @@ function registerSocketHandlers(io, socket, roomManager, playerManager) {
   playerManager.addPlayer(socket.id, user);
   console.log(`[Socket] ${user.login} connected (${playerManager.getOnlineCount()} online)`);
 
+  // Check if player requested a Singleplayer bot match
+  if (user && user.wantsSingleplayer) {
+    user.wantsSingleplayer = false;
+
+    // Leave any existing rooms first
+    const existingRoom = roomManager.getPlayerRoom(user.id);
+    if (existingRoom) {
+      socket.leave(existingRoom.id);
+      roomManager.leaveRoom(user.id);
+    }
+
+    // 1. Create a singleplayer solo room
+    const roomName = `Solo: ${user.login}'s War`;
+    const room = roomManager.createRoom(roomName, user);
+    
+    // 2. Join the guest player
+    const joinRes = roomManager.joinRoom(room.id, user, socket.id);
+    if (joinRes.success) {
+      socket.join(room.id);
+
+      // 3. Auto-populate with 3 Bot players representing the other 3 coalitions
+      const allCoalitions = [
+        { id: 1, name: 'The Order', color: '#3B82F6' },
+        { id: 2, name: 'The Assembly', color: '#EF4444' },
+        { id: 3, name: 'The Alliance', color: '#22C55E' },
+        { id: 4, name: 'The Federation', color: '#A855F7' }
+      ];
+
+      // Exclude user's coalition
+      const botCoalitions = allCoalitions.filter(c => c.id !== parseInt(user.coalitionId));
+      const botNames = ['Bot Sirac', 'Bot Codel', 'Bot Polat'];
+
+      botNames.forEach((botName, idx) => {
+        const botCoalition = botCoalitions[idx] || botCoalitions[0];
+        const botUser = {
+          id: `bot-user-${room.id}-${idx + 1}`,
+          intraId: `bot-intra-${room.id}-${idx + 1}`,
+          login: botName,
+          displayName: botName,
+          avatarUrl: null,
+          coalitionId: botCoalition.id,
+          coalitionName: botCoalition.name,
+          coalitionColor: botCoalition.color,
+          isBot: true
+        };
+        roomManager.joinRoom(room.id, botUser, null);
+      });
+
+      // 4. Force start the game immediately
+      room.startGame();
+
+      // 5. Notify the lobby
+      io.emit(E.ROOM_LIST, roomManager.getRoomList());
+    }
+  }
+
   // Send initial data
   socket.emit(E.PLAYER_INFO, { user });
   socket.emit(E.ROOM_LIST, roomManager.getRoomList());

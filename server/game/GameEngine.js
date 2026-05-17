@@ -57,6 +57,7 @@ class GameEngine {
 
     // Event log
     this.events = [];
+    this.botTimeout = null;
   }
 
   /**
@@ -499,6 +500,7 @@ class GameEngine {
     });
 
     this._startTurnTimer();
+    this.checkBotTurn();
   }
 
   _startMainGame(players) {
@@ -588,6 +590,7 @@ class GameEngine {
     // Ensure VPs are up to date before broadcast
     players.forEach(p => p.calculateVP(this.longestRoadPlayerId, this.largestArmyPlayerId));
     this.broadcast('game:stateUpdate', this.getFullState(players));
+    this.checkBotTurn();
   }
 
   /**
@@ -848,10 +851,145 @@ class GameEngine {
   /**
    * Cleanup.
    */
+  checkBotTurn() {
+    if (this.currentPhase === 'ENDED' || this.currentPhase === 'WAITING') return;
+
+    const currentPlayerId = this.turnOrder[this.currentTurn];
+    if (!currentPlayerId) return;
+
+    const players = this.room.getPlayers();
+    const currentActPlayer = players.find(p => p.id === currentPlayerId);
+    if (!currentActPlayer || !currentActPlayer.isBot) return;
+
+    // Trigger bot action with a small delay so it looks realistic
+    if (this.botTimeout) clearTimeout(this.botTimeout);
+    this.botTimeout = setTimeout(() => {
+      this.executeBotTurn(currentActPlayer, players);
+    }, 1200);
+  }
+
+  executeBotTurn(bot, players) {
+    if (this.currentPhase === 'SETUP') {
+      if (this.setupStep === 'village') {
+        const allVertices = Array.from(this.grid.vertices.values());
+        const emptyVertices = allVertices.filter(v => {
+          if (v.building) return false;
+          return v.adjacentVertices.every(adjId => {
+            const adjV = this.grid.vertices.get(adjId);
+            return !adjV || !adjV.building;
+          });
+        });
+        if (emptyVertices.length > 0) {
+          const pick = emptyVertices[Math.floor(Math.random() * emptyVertices.length)];
+          this.handleCommand(bot.id, { type: 'PLACE_VILLAGE', vertexId: pick.id });
+        } else {
+          this._advanceSetup();
+        }
+      } else if (this.setupStep === 'road') {
+        const lastVillageId = bot.villages[bot.villages.length - 1];
+        const vertex = this.grid.vertices.get(lastVillageId);
+        if (vertex) {
+          const emptyEdges = vertex.adjacentEdges.filter(eid => {
+            const edge = this.grid.edges.get(eid);
+            return edge && !edge.road;
+          });
+          if (emptyEdges.length > 0) {
+            const pick = emptyEdges[Math.floor(Math.random() * emptyEdges.length)];
+            this.handleCommand(bot.id, { type: 'PLACE_ROAD', edgeId: pick });
+          } else {
+            this._advanceSetup();
+          }
+        } else {
+          this._advanceSetup();
+        }
+      }
+    } else if (this.currentPhase === 'ROLL') {
+      this.handleCommand(bot.id, { type: 'ROLL_DICE' });
+    } else if (this.currentPhase === 'GAMEPLAY') {
+      const hasResForVillage = bot.resources.wood >= 1 && bot.resources.stone >= 1 && bot.resources.food >= 1 && bot.resources.gold >= 1;
+      const hasResForCity = bot.resources.iron >= 3 && bot.resources.food >= 2;
+      const hasResForRoad = bot.resources.wood >= 1 && bot.resources.stone >= 1;
+      
+      let builtSomething = false;
+      
+      if (hasResForCity && bot.villages.length > 0) {
+        const targetVillage = bot.villages[Math.floor(Math.random() * bot.villages.length)];
+        const res = this.handleCommand(bot.id, { type: 'UPGRADE_CITY', vertexId: targetVillage });
+        if (res.success) builtSomething = true;
+      }
+      
+      if (!builtSomething && hasResForVillage) {
+        const allVertices = Array.from(this.grid.vertices.values());
+        const possibleVertices = allVertices.filter(v => {
+          if (v.building) return false;
+          const distanceOk = v.adjacentVertices.every(adjId => {
+            const adjV = this.grid.vertices.get(adjId);
+            return !adjV || !adjV.building;
+          });
+          if (!distanceOk) return false;
+          
+          return v.adjacentEdges.some(eid => {
+            const edge = this.grid.edges.get(eid);
+            return edge && edge.road && edge.road.playerId === bot.id;
+          });
+        });
+        
+        if (possibleVertices.length > 0) {
+          const pick = possibleVertices[Math.floor(Math.random() * possibleVertices.length)];
+          const res = this.handleCommand(bot.id, { type: 'PLACE_VILLAGE', vertexId: pick.id });
+          if (res.success) builtSomething = true;
+        }
+      }
+      
+      if (!builtSomething && hasResForRoad) {
+        const allEdges = Array.from(this.grid.edges.values());
+        const possibleEdges = allEdges.filter(e => {
+          if (e.road) return false;
+          const v1 = this.grid.vertices.get(e.v1.id);
+          const v2 = this.grid.vertices.get(e.v2.id);
+          
+          const adjToBuilding = (v1 && v1.building && v1.building.playerId === bot.id) || 
+                                (v2 && v2.building && v2.building.playerId === bot.id);
+          
+          const adjToRoad = (v1 && v1.adjacentEdges.some(eid => {
+            const edge = this.grid.edges.get(eid);
+            return edge && edge.id !== e.id && edge.road && edge.road.playerId === bot.id;
+          })) || (v2 && v2.adjacentEdges.some(eid => {
+            const edge = this.grid.edges.get(eid);
+            return edge && edge.id !== e.id && edge.road && edge.road.playerId === bot.id;
+          }));
+          
+          return adjToBuilding || adjToRoad;
+        });
+        
+        if (possibleEdges.length > 0) {
+          const pick = possibleEdges[Math.floor(Math.random() * possibleEdges.length)];
+          const res = this.handleCommand(bot.id, { type: 'PLACE_ROAD', edgeId: pick.id });
+          if (res.success) builtSomething = true;
+        }
+      }
+      
+      this.handleCommand(bot.id, { type: 'END_TURN' });
+    } else if (this.currentPhase === 'ROBBER') {
+      const hexes = this.grid.hexes.filter(h => !h.hasRobber);
+      if (hexes.length > 0) {
+        const pick = hexes[Math.floor(Math.random() * hexes.length)];
+        this.handleCommand(bot.id, { type: 'MOVE_ROBBER', q: pick.q, r: pick.r });
+      } else {
+        this.currentPhase = 'GAMEPLAY';
+        this._broadcastState(players);
+      }
+    }
+  }
+
   destroy() {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
+    }
+    if (this.botTimeout) {
+      clearTimeout(this.botTimeout);
+      this.botTimeout = null;
     }
     this.currentPhase = 'ENDED';
   }

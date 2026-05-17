@@ -334,6 +334,67 @@ router.get('/mock/:login', (req, res) => {
 });
 
 /**
+ * Guest Login — POST /auth/42/guest-login
+ * Allows local guest players to log in with a custom name and coalition,
+ * then auto-starts a singleplayer match with bots.
+ */
+router.post('/guest-login', (req, res) => {
+  const { login, coalitionId, coalitionName, coalitionColor } = req.body;
+  if (!login) return res.status(400).json({ error: 'Name is required' });
+
+  // Generate unique numeric ID for the guest player
+  let hash = 0;
+  for (let i = 0; i < login.length; i++) {
+    hash = ((hash << 5) - hash) + login.charCodeAt(i);
+    hash |= 0;
+  }
+  const mockId = Math.abs(hash) % 100000 + 500000; // distinct range for guests
+
+  const upsertStmt = db.prepare(`
+    INSERT INTO players (intra_id, login, display_name, avatar_url,
+                         coalition_id, coalition_name, coalition_color, coalition_image_url,
+                         last_login)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(intra_id) DO UPDATE SET
+      display_name = excluded.display_name,
+      coalition_id = excluded.coalition_id,
+      coalition_name = excluded.coalition_name,
+      coalition_color = excluded.coalition_color,
+      last_login = CURRENT_TIMESTAMP
+  `);
+  upsertStmt.run(
+    mockId,
+    login,
+    login,
+    null,
+    parseInt(coalitionId) || 1,
+    coalitionName || 'The Order',
+    coalitionColor || '#3B82F6',
+    null
+  );
+
+  const player = db.prepare('SELECT * FROM players WHERE intra_id = ?').get(mockId);
+
+  req.session.user = {
+    id: player.id,
+    intraId: player.intra_id,
+    login: player.login,
+    displayName: player.display_name,
+    avatarUrl: player.avatar_url,
+    coalitionId: player.coalition_id,
+    coalitionName: player.coalition_name,
+    coalitionColor: player.coalition_color,
+    coalitionImageUrl: player.coalition_image_url,
+    eloPoints: player.elo_points,
+    wantsSingleplayer: true // Flag to automatically launch bot match
+  };
+
+  req.session.save(() => {
+    res.json({ success: true });
+  });
+});
+
+/**
  * Logout — destroy session.
  */
 router.get('/logout', (req, res) => {
