@@ -522,7 +522,7 @@ function renderGameState(gs) {
 
     // Robber
     if (hex.hasRobber && GameAssets.robber.complete) {
-      ctx.drawImage(GameAssets.robber, x - 20, y - 20, 40, 40);
+      ctx.drawImage(GameAssets.robber, x - 30, y - 30, 60, 60);
     }
   }
 
@@ -658,7 +658,8 @@ function getHexPixel(q, r) {
 
 // ─── CLICK HANDLING ────────────────────────────────────────
 function handleCanvasClick(px, py) {
-  if (!state.gameState || !state.selectedAction) return;
+  if (!state.gameState) return;
+  if (!state.selectedAction && state.gameState.phase !== 'ROBBER') return;
 
   // Find nearest vertex (for villages/cities)
   let nearestVertex = null;
