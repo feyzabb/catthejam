@@ -24,7 +24,7 @@ module.exports = {
   // Game constants (Catan-style)
   GAME: {
     TURN_DURATION: 60,         // seconds per turn
-    MAX_PLAYERS: 4,            // players per room
+    MAX_PLAYERS: parseInt(process.env.MAX_PLAYERS) || 4, // players per room
     VP_WIN: 10,                // victory points to win
     POINTS: {
       FIRST:  +50,

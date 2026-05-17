@@ -12,8 +12,7 @@ module.exports = {
   ROOM_GAME_START:'room:gameStart',
   ROOM_KICKED:    'room:kicked',
 
-  // Game events
-  GAME_COMMAND:       'game:command',
+  // Game events (Client to Server)
   GAME_READY:         'game:ready',
   GAME_PHASE_START:   'game:phaseStart',
   GAME_PULSE_RESULT:  'game:pulseResult',

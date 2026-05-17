@@ -134,6 +134,50 @@ function connectSocket() {
     }
   });
 
+  // Explicit listeners requested by user architecture
+  s.on('settlement_built', ({ nodeId, playerId, playerColor }) => {
+    addEventLog(`🏠 Settlement built at ${nodeId}`);
+    // State sync will naturally re-render the canvas with playerColor
+  });
+
+  s.on('road_built', ({ edgeId, playerId, playerColor }) => {
+    addEventLog(`🛤️ Road built at ${edgeId}`);
+    // State sync will naturally re-render the canvas with playerColor
+  });
+
+  s.on('dice_rolled', ({ dice1, dice2, total, currentTurn }) => {
+    // Add logic handled in game:dice normally
+    addEventLog(`🎲 ${dice1} and ${dice2} rolled (Total: ${total})`);
+  });
+
+  s.on('turn_changed', ({ nextPlayerId }) => {
+    if (nextPlayerId === state.user.id) {
+      addEventLog('👉 Your turn started!');
+    }
+  });
+
+  s.on('resources_updated', (data) => {
+    // 1. Log event
+    const resString = data.gained.map(r => `+${r.amount} ${r.type}`).join(', ');
+    addEventLog(`🌱 ${data.login} got ${resString}`);
+
+    // 2. Anında UI Güncellemesi (Sayfa yenilemeden)
+    if (data.playerId === state.user.id) {
+      if ($('#res-wood .res-val')) $('#res-wood .res-val').textContent = data.playerResources.wood || 0;
+      if ($('#res-stone .res-val')) $('#res-stone .res-val').textContent = data.playerResources.stone || 0;
+      if ($('#res-iron .res-val')) $('#res-iron .res-val').textContent = data.playerResources.iron || 0;
+      if ($('#res-gold .res-val')) $('#res-gold .res-val').textContent = data.playerResources.gold || 0;
+      if ($('#res-food .res-val')) $('#res-food .res-val').textContent = data.playerResources.food || 0;
+      
+      // Flash effect (opsiyonel)
+      const resContainer = $('#res-container') || $('.game-hud-top');
+      if (resContainer) {
+        resContainer.classList.add('flash');
+        setTimeout(() => resContainer.classList.remove('flash'), 500);
+      }
+    }
+  });
+
   s.on('game:dice', (data) => {
     const overlay = $('#dice-overlay');
     const d1 = $('#die1'), d2 = $('#die2');
@@ -276,8 +320,8 @@ function renderGameState(gs) {
     const img = GameAssets.getIslandTile(hex.resourceType);
     
     if (img && img.complete) {
-      const w = SQRT3 * HEX_SIZE * 1.05;
-      const h = 2 * HEX_SIZE * 1.05;
+      const w = SQRT3 * HEX_SIZE * 0.97; // Slightly reduced from 1.05 to create an aesthetic gap
+      const h = 2 * HEX_SIZE * 0.97;
       ctx.drawImage(img, x - w/2, y - h/2, w, h);
     }
 
@@ -372,7 +416,7 @@ function renderGameState(gs) {
   // 4. Draw Highlights based on selected action or setup phase
   const action = state.selectedAction;
   const step = gs.setupStep;
-  const isSetup = gs.phase === 'setup';
+  const isSetup = gs.phase === 'SETUP';
   
   if (action === 'BUILD_VILLAGE' || action === 'UPGRADE_CITY' || (isSetup && step === 'village')) {
     ctx.fillStyle = 'rgba(34, 197, 94, 0.6)'; // Green glow
@@ -410,7 +454,7 @@ function renderGameState(gs) {
     ctx.shadowBlur = 0;
   }
 
-  if (action === 'NAVY_ATTACK' || gs.phase === 'robber') {
+  if (action === 'NAVY_ATTACK' || gs.phase === 'ROBBER') {
     ctx.fillStyle = 'rgba(239, 68, 68, 0.4)'; // Red glow over hexes
     for (const hex of gs.grid.hexes) {
       if (!hex.hasRobber) {
@@ -424,6 +468,7 @@ function renderGameState(gs) {
 
   ctx.restore();
   updateHUD(gs);
+  renderDOMSlots(gs);
 }
 
 function getHexPixel(q, r) {
@@ -480,17 +525,17 @@ function handleCanvasClick(px, py) {
 
   // Send command based on action
   if (state.selectedAction === 'BUILD_VILLAGE' && nearestVertex) {
-    state.socket.emit('game:command', { type: 'PLACE_VILLAGE', vertexId: nearestVertex });
+    state.socket.emit('build_settlement', { nodeId: nearestVertex });
   } 
   else if (state.selectedAction === 'BUILD_SHIP' && nearestEdge) {
-    state.socket.emit('game:command', { type: 'PLACE_ROAD', edgeId: nearestEdge });
+    state.socket.emit('build_road', { edgeId: nearestEdge });
   }
   else if (state.selectedAction === 'UPGRADE_CITY' && nearestVertex) {
     state.socket.emit('game:command', { type: 'UPGRADE_CITY', vertexId: nearestVertex });
   }
   else if (state.selectedAction === 'NAVY_ATTACK' && nearestHex) {
     // If it's robber phase, move robber
-    if (state.gameState.phase === 'robber') {
+    if (state.gameState.phase === 'ROBBER') {
       state.socket.emit('game:command', { type: 'MOVE_ROBBER', q: nearestHex.q, r: nearestHex.r });
     } else {
       // If buying a new navy attack
@@ -500,7 +545,7 @@ function handleCanvasClick(px, py) {
   }
 
   // Deselect after click (unless we just bought a navy attack and need to place it)
-  if (state.selectedAction !== 'NAVY_ATTACK' || state.gameState.phase === 'robber') {
+  if (state.selectedAction !== 'NAVY_ATTACK' || state.gameState.phase === 'ROBBER') {
     state.selectedAction = null;
     $$('.action-btn').forEach(b => b.classList.remove('active'));
   }
@@ -527,7 +572,7 @@ function updateHUD(gs) {
     $('#res-food .res-val').textContent = me.resources.food || 0;
   }
 
-  $('#status-phase').textContent = `${gs.phase.toUpperCase()} PHASE`;
+  $('#status-phase').textContent = `${gs.phase} PHASE`;
   const currentPlayer = gs.players.find(p => p.id === gs.currentPlayerId);
   $('#status-turn').textContent = currentPlayer ? `${currentPlayer.login}'s Turn` : '';
 
@@ -553,7 +598,93 @@ function updateHUD(gs) {
 
   // Build phase glow
   const wrap = $('#canvas-wrap');
-  if (wrap) wrap.classList.toggle('build-glow', gs.phase === 'build');
+  if (wrap) wrap.classList.toggle('build-glow', gs.phase === 'GAMEPLAY');
+}
+
+// ─── DOM SLOTS OVERLAY ──────────────────────────────────────
+function renderDOMSlots(gs) {
+  const wrap = $('#canvas-wrap');
+  if (!wrap) return;
+
+  let container = wrap.querySelector('.slots-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'slots-container';
+    wrap.appendChild(container);
+  }
+
+  const isSetup = gs.phase === 'SETUP';
+  const showNodes = state.selectedAction === 'BUILD_VILLAGE' || state.selectedAction === 'UPGRADE_CITY' || (isSetup && gs.setupStep === 'village');
+  const showEdges = state.selectedAction === 'BUILD_SHIP' || (isSetup && gs.setupStep === 'road');
+
+  // Vertices (Nodes)
+  for (const v of gs.grid.vertices) {
+    let slot = container.querySelector(`.node-slot[data-node-id="${v.id}"]`);
+    if (!slot) {
+      slot = document.createElement('div');
+      slot.className = 'node-slot';
+      slot.dataset.nodeId = v.id;
+      slot.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (state.selectedAction === 'BUILD_VILLAGE' || (isSetup && gs.setupStep === 'village')) {
+          state.socket.emit('build_settlement', { nodeId: v.id });
+        } else if (state.selectedAction === 'UPGRADE_CITY') {
+          state.socket.emit('game:command', { type: 'UPGRADE_CITY', vertexId: v.id });
+        }
+      });
+      container.appendChild(slot);
+    }
+    
+    slot.style.left = `${v.x * camera.zoom + camera.x}px`;
+    slot.style.top = `${v.y * camera.zoom + camera.y}px`;
+    
+    if (v.building) {
+      slot.classList.add('built');
+      slot.classList.remove('visible');
+    } else {
+      slot.classList.remove('built');
+      slot.classList.toggle('visible', showNodes);
+      slot.style.pointerEvents = showNodes ? 'auto' : 'none';
+    }
+  }
+
+  // Edges
+  for (const e of gs.grid.edges) {
+    let slot = container.querySelector(`.edge-slot[data-edge-id="${e.id}"]`);
+    if (!slot) {
+      slot = document.createElement('div');
+      slot.className = 'edge-slot';
+      slot.dataset.edgeId = e.id;
+      slot.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (state.selectedAction === 'BUILD_SHIP' || (isSetup && gs.setupStep === 'road')) {
+          state.socket.emit('build_road', { edgeId: e.id });
+        }
+      });
+      container.appendChild(slot);
+    }
+    
+    const midX = (e.v1.x + e.v2.x) / 2;
+    const midY = (e.v1.y + e.v2.y) / 2;
+    const dx = e.v2.x - e.v1.x;
+    const dy = e.v2.y - e.v1.y;
+    const angle = Math.atan2(dy, dx);
+    const length = Math.hypot(dx, dy) * camera.zoom;
+    
+    slot.style.left = `${midX * camera.zoom + camera.x}px`;
+    slot.style.top = `${midY * camera.zoom + camera.y}px`;
+    slot.style.width = `${length}px`;
+    slot.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
+    
+    if (e.road) {
+      slot.classList.add('built');
+      slot.classList.remove('visible');
+    } else {
+      slot.classList.remove('built');
+      slot.classList.toggle('visible', showEdges);
+      slot.style.pointerEvents = showEdges ? 'auto' : 'none';
+    }
+  }
 }
 
 function updateUIControls(gs) {
@@ -577,7 +708,7 @@ function updateUIControls(gs) {
   endBtn.classList.remove('disabled');
 
   // Auto-select for setup phase
-  if (gs.phase === 'setup') {
+  if (gs.phase === 'SETUP') {
     if (gs.setupStep === 'village' && state.selectedAction !== 'BUILD_VILLAGE') {
       state.selectedAction = 'BUILD_VILLAGE';
       $$('.action-btn').forEach(b => b.classList.remove('active'));
@@ -589,10 +720,10 @@ function updateUIControls(gs) {
     }
   }
 
-  if (gs.phase === 'roll') {
+  if (gs.phase === 'ROLL') {
     rollBtn.classList.remove('hidden');
     endBtn.classList.add('hidden');
-  } else if (gs.phase === 'build' || gs.phase === 'setup' || gs.phase === 'robber') {
+  } else if (gs.phase === 'GAMEPLAY' || gs.phase === 'SETUP' || gs.phase === 'ROBBER') {
     rollBtn.classList.add('hidden');
     endBtn.classList.remove('hidden');
   } else {
@@ -641,12 +772,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Roll dice
   $('#btn-roll-dice')?.addEventListener('click', () => {
-    state.socket.emit('game:command', { type: 'ROLL_DICE' });
+    state.socket.emit('roll_dice');
   });
 
   // End turn
   $('#btn-end-turn')?.addEventListener('click', () => {
-    state.socket.emit('game:command', { type: 'END_TURN' });
+    state.socket.emit('end_turn');
     state.selectedAction = null;
     $$('.action-btn').forEach(b => b.classList.remove('active'));
   });

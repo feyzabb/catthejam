@@ -28,7 +28,7 @@ class GameEngine {
 
     // Game state
     this.grid = new HexGrid();
-    this.phase = 'waiting'; // 'waiting' | 'setup' | 'roll' | 'build' | 'robber' | 'ended'
+    this.currentPhase = 'WAITING'; // 'WAITING' | 'SETUP' | 'ROLL' | 'GAMEPLAY' | 'ROBBER' | 'ENDED'
     this.currentTurn = 0;   // player index whose turn it is
     this.turnOrder = [];     // array of player IDs in turn order
     this.lastDice = [0, 0]; // [die1, die2]
@@ -58,19 +58,20 @@ class GameEngine {
    * Start the game — enter setup phase.
    */
   start() {
-    this.phase = 'setup';
+    this.currentPhase = 'SETUP';
     this.setupRound = 0;
     this.currentTurn = 0;
     this.setupStep = 'village';
 
     this.broadcast('game:phaseStart', {
-      phase: 'setup',
+      phase: 'SETUP',
       setupRound: this.setupRound,
       setupStep: this.setupStep,
       currentTurn: this.currentTurn,
       currentPlayerId: this.turnOrder[this.currentTurn],
     });
 
+    this._broadcastState(this.room.getPlayers()); // Fix lockup: immediately tell clients it is SETUP
     this._startTurnTimer();
   }
 
@@ -94,13 +95,13 @@ class GameEngine {
    * Auto-pass when timer expires.
    */
   _autoPass() {
-    if (this.phase === 'setup') {
+    if (this.currentPhase === 'SETUP') {
       // Skip this player's setup turn
       this._advanceSetup();
-    } else if (this.phase === 'roll') {
+    } else if (this.currentPhase === 'ROLL') {
       // Auto-roll
       this._rollDice();
-    } else if (this.phase === 'build' || this.phase === 'robber') {
+    } else if (this.currentPhase === 'GAMEPLAY' || this.currentPhase === 'ROBBER') {
       // End turn
       this._endTurn();
     }
@@ -145,7 +146,7 @@ class GameEngine {
     const vertexId = command.vertexId;
     if (!vertexId) return { success: false, error: 'No vertex specified' };
 
-    if (this.phase === 'setup') {
+    if (this.currentPhase === 'SETUP') {
       if (this.setupStep !== 'village') return { success: false, error: 'Place a road first' };
 
       // In setup, use free placement (no distance rule enforcement except via grid)
@@ -158,18 +159,30 @@ class GameEngine {
       // In second setup round, give initial resources from adjacent hexes
       if (this.setupRound === 1) {
         const adjHexes = this.grid.getHexesForVertex(vertexId);
+        const given = [];
         for (const hex of adjHexes) {
           if (hex.resourceType) {
             player.addResource(hex.resourceType, 1);
+            given.push({ type: hex.resourceType, amount: 1 });
           }
+        }
+        if (given.length > 0) {
+          this.broadcast('resources_updated', {
+            playerId: player.id,
+            login: player.login,
+            playerResources: player.resources,
+            gained: given,
+            reason: 'setup_yield'
+          });
         }
       }
 
       this.setupStep = 'road';
+      this.broadcast('settlement_built', { nodeId: vertexId, playerId: player.id, playerColor: player.color });
       this._broadcastState(players);
       return { success: true };
 
-    } else if (this.phase === 'build') {
+    } else if (this.currentPhase === 'GAMEPLAY') {
       // Normal game: check cost and rules
       if (!player.canAfford(COSTS.village)) return { success: false, error: 'Cannot afford village' };
 
@@ -188,6 +201,7 @@ class GameEngine {
       this.events.push({ type: 'VILLAGE_BUILT', playerId: player.id, vertexId });
 
       this._checkVictory(player, players);
+      this.broadcast('settlement_built', { nodeId: vertexId, playerId: player.id, playerColor: player.color });
       this._broadcastState(players);
       return { success: true };
     }
@@ -199,7 +213,7 @@ class GameEngine {
     const edgeId = command.edgeId;
     if (!edgeId) return { success: false, error: 'No edge specified' };
 
-    if (this.phase === 'setup') {
+    if (this.currentPhase === 'SETUP') {
       if (this.setupStep !== 'road') return { success: false, error: 'Place a village first' };
 
       // In setup, road must be adjacent to the just-placed village
@@ -217,11 +231,12 @@ class GameEngine {
       this.events.push({ type: 'ROAD_BUILT', playerId: player.id, edgeId });
 
       // Advance setup
+      this.broadcast('road_built', { edgeId, playerId: player.id, playerColor: player.color });
       this._advanceSetup();
       this._broadcastState(players);
       return { success: true };
 
-    } else if (this.phase === 'build') {
+    } else if (this.currentPhase === 'GAMEPLAY') {
       // Normal game: check cost
       if (!player.canAfford(COSTS.road)) return { success: false, error: 'Cannot afford road' };
 
@@ -232,6 +247,7 @@ class GameEngine {
       player.roads.push(edgeId);
       this.events.push({ type: 'ROAD_BUILT', playerId: player.id, edgeId });
 
+      this.broadcast('road_built', { edgeId, playerId: player.id, playerColor: player.color });
       this._broadcastState(players);
       return { success: true };
     }
@@ -240,7 +256,7 @@ class GameEngine {
   }
 
   _handleUpgradeCity(player, command, players) {
-    if (this.phase !== 'build') return { success: false, error: 'Not in build phase' };
+    if (this.currentPhase !== 'GAMEPLAY') return { success: false, error: 'Not in build phase' };
 
     const vertexId = command.vertexId;
     if (!vertexId) return { success: false, error: 'No vertex specified' };
@@ -261,7 +277,7 @@ class GameEngine {
   }
 
   _handleBuyNavyAttack(player, players) {
-    if (this.phase !== 'build') return { success: false, error: 'Not in build phase' };
+    if (this.currentPhase !== 'GAMEPLAY') return { success: false, error: 'Not in build phase' };
 
     if (!player.canAfford(COSTS.navy_attack)) return { success: false, error: 'Cannot afford navy attack' };
 
@@ -269,7 +285,7 @@ class GameEngine {
     this.events.push({ type: 'NAVY_ATTACK_BOUGHT', playerId: player.id });
     
     // Change phase to robber so the player can place the Navy (Robber)
-    this.phase = 'robber';
+    this.currentPhase = 'ROBBER';
     this._broadcastState(players);
     return { success: true };
   }
@@ -277,7 +293,7 @@ class GameEngine {
   // ─── DICE ROLLING ──────────────────────────────────────────
 
   _handleRollDice(player, players) {
-    if (this.phase !== 'roll') return { success: false, error: 'Not in roll phase' };
+    if (this.currentPhase !== 'ROLL') return { success: false, error: 'Not in roll phase' };
     this._rollDice();
     return { success: true };
   }
@@ -311,9 +327,10 @@ class GameEngine {
       }
 
       // Move to robber phase
-      this.phase = 'robber';
+      this.currentPhase = 'ROBBER';
+      this.broadcast('dice_rolled', { dice1: die1, dice2: die2, total, currentTurn: this.turnOrder[this.currentTurn] });
       this._broadcastState(players);
-      this.broadcast('game:dice', { dice: [die1, die2], total, phase: 'robber' });
+      this.broadcast('game:dice', { dice: [die1, die2], total, phase: 'ROBBER' });
       return;
     }
 
@@ -329,18 +346,26 @@ class GameEngine {
           resourceType: dist.resourceType,
           amount: dist.amount,
         });
+        this.broadcast('resources_updated', {
+          playerId: p.id,
+          login: p.login,
+          playerResources: p.resources,
+          gained: [{ type: dist.resourceType, amount: dist.amount }],
+          reason: 'dice_roll'
+        });
       }
     }
 
-    this.phase = 'build';
+    this.currentPhase = 'GAMEPLAY';
+    this.broadcast('dice_rolled', { dice1: die1, dice2: die2, total, currentTurn: this.turnOrder[this.currentTurn] });
     this._broadcastState(players);
-    this.broadcast('game:dice', { dice: [die1, die2], total, distributions, phase: 'build' });
+    this.broadcast('game:dice', { dice: [die1, die2], total, distributions, phase: 'GAMEPLAY' });
   }
 
   // ─── ROBBER ────────────────────────────────────────────────
 
   _handleMoveRobber(player, command, players) {
-    if (this.phase !== 'robber') return { success: false, error: 'Not in robber phase' };
+    if (this.currentPhase !== 'ROBBER') return { success: false, error: 'Not in robber phase' };
 
     const { q, r } = command;
     const hex = this.grid.getHex(q, r);
@@ -354,7 +379,7 @@ class GameEngine {
     this.grid.moveRobber(q, r);
     this.events.push({ type: 'ROBBER_MOVED', playerId: player.id, hex: { q, r } });
 
-    this.phase = 'build';
+    this.currentPhase = 'GAMEPLAY';
     this._broadcastState(players);
     return { success: true };
   }
@@ -362,7 +387,7 @@ class GameEngine {
   // ─── TURN MANAGEMENT ──────────────────────────────────────
 
   _handleEndTurn(player, players) {
-    if (this.phase !== 'build') return { success: false, error: 'Cannot end turn now' };
+    if (this.currentPhase !== 'GAMEPLAY') return { success: false, error: 'Cannot end turn now' };
     this._endTurn();
     return { success: true };
   }
@@ -373,8 +398,9 @@ class GameEngine {
     // Advance to next player
     this.currentTurn = (this.currentTurn + 1) % this.turnOrder.length;
     this.turnNumber++;
-    this.phase = 'roll';
+    this.currentPhase = 'ROLL';
 
+    this.broadcast('turn_changed', { nextPlayerId: this.turnOrder[this.currentTurn] });
     this.broadcast('game:turnChanged', {
       currentTurn: this.currentTurn,
       currentPlayerId: this.turnOrder[this.currentTurn],
@@ -412,7 +438,7 @@ class GameEngine {
     this.setupStep = 'village';
 
     this.broadcast('game:phaseStart', {
-      phase: 'setup',
+      phase: 'SETUP',
       setupRound: this.setupRound,
       setupStep: this.setupStep,
       currentTurn: this.currentTurn,
@@ -423,7 +449,7 @@ class GameEngine {
   }
 
   _startMainGame(players) {
-    this.phase = 'roll';
+    this.currentPhase = 'ROLL';
     this.currentTurn = 0;
     this.turnNumber = 1;
 
@@ -446,7 +472,7 @@ class GameEngine {
   }
 
   _endGame(winner, players) {
-    this.phase = 'ended';
+    this.currentPhase = 'ENDED';
     if (this.timer) clearInterval(this.timer);
 
     const ranked = players
@@ -492,7 +518,7 @@ class GameEngine {
    */
   getFullState(players) {
     return {
-      phase: this.phase,
+      phase: this.currentPhase,
       currentTurn: this.currentTurn,
       currentPlayerId: this.turnOrder[this.currentTurn],
       turnNumber: this.turnNumber,
@@ -515,7 +541,7 @@ class GameEngine {
       clearInterval(this.timer);
       this.timer = null;
     }
-    this.phase = 'ended';
+    this.currentPhase = 'ENDED';
   }
 }
 

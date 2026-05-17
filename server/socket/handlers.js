@@ -79,7 +79,7 @@ function registerSocketHandlers(io, socket, roomManager, playerManager) {
 
   // ─── GAME EVENTS ──────────────────────────────────────────
 
-  socket.on(E.GAME_COMMAND, (command) => {
+  const handleGameAction = (command) => {
     const room = roomManager.getPlayerRoom(user.id);
     if (!room) return;
 
@@ -87,7 +87,26 @@ function registerSocketHandlers(io, socket, roomManager, playerManager) {
     if (!result.success) {
       socket.emit(E.ERROR, { code: 'COMMAND_FAILED', message: result.error || 'Cannot execute command' });
     }
+  };
+
+  socket.on('build_settlement', ({ nodeId }) => {
+    handleGameAction({ type: 'PLACE_VILLAGE', vertexId: nodeId });
   });
+
+  socket.on('build_road', ({ edgeId }) => {
+    handleGameAction({ type: 'PLACE_ROAD', edgeId });
+  });
+
+  socket.on('roll_dice', () => {
+    handleGameAction({ type: 'ROLL_DICE' });
+  });
+
+  socket.on('end_turn', () => {
+    handleGameAction({ type: 'END_TURN' });
+  });
+
+  // Keep for other commands (trade, upgrade city, navy attack)
+  socket.on(E.GAME_COMMAND, handleGameAction);
 
   // ─── CHAT ─────────────────────────────────────────────────
 
