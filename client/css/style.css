@@ -609,6 +609,12 @@ body {
 .trade-res-row .res-plus:hover {
   background: rgba(34,211,238,0.3);
 }
+.trade-res-icon {
+  width: 22px; height: 22px;
+  object-fit: contain;
+  vertical-align: middle;
+  display: inline-block;
+}
 
 /* ── Incoming Trade Offer Popup ── */
 .trade-offer-popup {

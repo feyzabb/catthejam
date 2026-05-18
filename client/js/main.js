@@ -414,14 +414,18 @@ function initGameCanvas() {
 
   function resizeCanvas() {
     const rect = wrap.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width  = rect.width  * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width  = rect.width  + 'px';
+    canvas.style.height = rect.height + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // keep logical coords unchanged
   }
 
   // Delay to let flex layout settle
   requestAnimationFrame(() => {
     resizeCanvas();
-    camera = { x: canvas.width / 2, y: canvas.height / 2.5, zoom: 1.0 };
+    camera = { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2.5, zoom: 1.0 };
     
     // Start continuous animation loop for dynamic water
     if (state.animationId) cancelAnimationFrame(state.animationId);
@@ -441,6 +445,11 @@ function initGameCanvas() {
     camera.x += e.clientX - lastX;
     camera.y += e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
+    // Clamp pan so map never drifts too far off screen
+    const cW = canvas.clientWidth;
+    const cH = canvas.clientHeight;
+    camera.x = Math.max(-cW * 0.4, Math.min(cW * 1.4, camera.x));
+    camera.y = Math.max(-cH * 0.4, Math.min(cH * 1.4, camera.y));
     if (state.gameState) renderGameState(state.gameState);
   });
   canvas.addEventListener('mouseup', () => dragging = false);
@@ -468,12 +477,15 @@ function initGameCanvas() {
 
 // ─── RENDERING ─────────────────────────────────────────────
 const HEX_SIZE = 72;
-const DRAW_HEX_SIZE = 50;
+const DRAW_HEX_SIZE = HEX_SIZE; // match draw size to layout size for crisp islands
 const SQRT3 = Math.sqrt(3);
 
 function renderGameState(gs) {
   if (!ctx || !gs) return;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Use logical (CSS) dimensions so clearRect works correctly with the DPR transform
+  const logW = canvas.clientWidth  || canvas.width;
+  const logH = canvas.clientHeight || canvas.height;
+  ctx.clearRect(0, 0, logW, logH);
   ctx.save();
   ctx.translate(camera.x, camera.y);
   ctx.scale(camera.zoom, camera.zoom);
@@ -489,24 +501,19 @@ function renderGameState(gs) {
   ctx.fillStyle = deepGrad;
   ctx.fillRect(-3000, -3000, 6000, 6000);
 
-  // B. Draw High-Res Hand-Painted Sea Background (Deniz.png)
+  // B. Draw Sea Background — full canvas coverage at native physical resolution
   if (GameAssets.deniz && GameAssets.deniz.complete) {
-    // Elegant, slow wave scale-sway motion to breathe life into the sea background
-    const waveScale = 1.05 + Math.sin(time * 0.15) * 0.02;
-    const waveAngle = Math.cos(time * 0.12) * 0.015;
-    const waveX = Math.sin(time * 0.1) * 20;
-    const waveY = Math.cos(time * 0.08) * 15;
-
     ctx.save();
-    ctx.translate(waveX, waveY);
-    ctx.rotate(waveAngle);
-    
-    // Draw broad 5000x5000 high-fidelity background image centered
-    const size = 5000 * waveScale;
-    ctx.drawImage(GameAssets.deniz, -size/2, -size/2, size, size);
+    ctx.setTransform(1, 0, 0, 1, 0, 0); // identity: draw in physical canvas pixels
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    // canvas.width/height are the physical pixel dimensions (already DPR-scaled)
+    ctx.drawImage(GameAssets.deniz, 0, 0, canvas.width, canvas.height);
     ctx.restore();
+    // ctx.restore() already brings back the camera transform (DPR + translate + scale)
+    // No re-apply needed — doing so with wrong DPR scaling causes DOM slot misalignment
   } else {
-    // High-fidelity fallback blue radial abyss if image is still loading
+    // Fallback gradient
     const deepGrad = ctx.createRadialGradient(0, 0, 100, 0, 0, 1500);
     deepGrad.addColorStop(0, '#1e477a');
     deepGrad.addColorStop(0.5, '#102647');
@@ -548,8 +555,10 @@ function renderGameState(gs) {
     const img = GameAssets.getIslandTile(hex.resourceType);
     
     if (img && img.complete) {
-      const w = SQRT3 * DRAW_HEX_SIZE * 0.97;
-      const h = 2 * DRAW_HEX_SIZE * 0.97;
+      const w = SQRT3 * DRAW_HEX_SIZE * 1.05;
+      const h = 2   * DRAW_HEX_SIZE * 1.05;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, x - w/2, y - h/2, w, h);
     }
 
@@ -570,9 +579,22 @@ function renderGameState(gs) {
       ctx.fillText(hex.diceNumber, x, y);
     }
 
-    // Robber
-    if (hex.hasRobber && GameAssets.robber.complete) {
-      ctx.drawImage(GameAssets.robber, x - 30, y - 30, 60, 60);
+    // Robber overlay: storm tile drawn ON TOP of the normal island tile
+    if (hex.hasRobber) {
+      // 1. Draw storm overlay covering the whole tile (semi-transparent)
+      if (GameAssets.storm_overlay && GameAssets.storm_overlay.complete) {
+        const w = SQRT3 * DRAW_HEX_SIZE * 1.05;
+        const h = 2   * DRAW_HEX_SIZE * 1.05;
+        ctx.save();
+        ctx.globalAlpha = 0.82;
+        ctx.drawImage(GameAssets.storm_overlay, x - w/2, y - h/2, w, h);
+        ctx.globalAlpha = 1.0;
+        ctx.restore();
+      }
+      // 2. Draw robber icon on top
+      if (GameAssets.robber && GameAssets.robber.complete) {
+        ctx.drawImage(GameAssets.robber, x - 30, y - 30, 60, 60);
+      }
     }
   }
 

@@ -116,7 +116,14 @@ class GameEngine {
       // Auto-roll
       this._rollDice();
     } else if (this.currentPhase === 'GAMEPLAY' || this.currentPhase === 'ROBBER') {
-      // End turn
+      // Don't auto-pass if current player has an active trade negotiation
+      const currentPlayerId = this.turnOrder[this.currentTurn];
+      const hasActiveTrade = [...activeTrades.values()].some(t => t.proposerId === currentPlayerId);
+      if (hasActiveTrade) {
+        // Reset timer so negotiation can continue
+        this.timeRemaining = config.GAME.TURN_DURATION || 60;
+        return;
+      }
       this._endTurn();
     }
   }
@@ -442,6 +449,9 @@ class GameEngine {
 
   _handleEndTurn(player, players) {
     if (this.currentPhase !== 'GAMEPLAY') return { success: false, error: 'Cannot end turn now' };
+    // Block end turn while this player has an active trade proposal open
+    const hasActiveTrade = [...activeTrades.values()].some(t => t.proposerId === player.id);
+    if (hasActiveTrade) return { success: false, error: 'Takas tamamlanmadan sırayı bitiremezsiniz' };
     this._endTurn();
     return { success: true };
   }
@@ -971,7 +981,7 @@ class GameEngine {
       
       this.handleCommand(bot.id, { type: 'END_TURN' });
     } else if (this.currentPhase === 'ROBBER') {
-      const hexes = this.grid.hexes.filter(h => !h.hasRobber);
+      const hexes = [...this.grid.hexes.values()].filter(h => !h.hasRobber);
       if (hexes.length > 0) {
         const pick = hexes[Math.floor(Math.random() * hexes.length)];
         this.handleCommand(bot.id, { type: 'MOVE_ROBBER', q: pick.q, r: pick.r });

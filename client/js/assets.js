@@ -17,12 +17,15 @@ const GameAssets = (function () {
     deniz: loadImageSync(`${BASE}/Deniz.png`),
 
     // ═══ Resource Island Tiles ═══
-    wood_island: loadImageSync(`${BASE}/forest_island.png`),
+    wood_island: loadImageSync(`${BASE}/wood_island.png`),
     stone_island: loadImageSync(`${BASE}/rocky_island.png`),
-    iron_island: loadImageSync(`${BASE}/volcanic_island.png`),
+    iron_island: loadImageSync(`${BASE}/iron_island.png`),
     gold_island: loadImageSync(`${BASE}/gold_crystal_island.png`),
-    food_island: loadImageSync(`${BASE}/storm_tile.png`), // High fidelity generic resource/storm tile
-    desert_island: loadImageSync(`${BASE}/storm_tile.png`),
+    food_island: loadImageSync(`${BASE}/food_island.png`),
+    desert_island: loadImageSync(`${BASE}/rocky_island.png`),
+
+    // ═══ Robber Overlay (shown on top of a tile when robber is placed there) ═══
+    storm_overlay: loadImageSync(`${BASE}/storm_tile.png`),
 
     // ═══ Structures (Pre-existing UI/Board) ═══
     village_blue: loadImageSync(`${UI_BASE}/structures__village_blue.png`),
@@ -81,6 +84,7 @@ const GameAssets = (function () {
 
     // ═══ Disaster / Robber ═══
     robber: loadImageSync(`${UI_BASE}/disasters_board_effects__disaster_icon_storm.png`),
+    storm_board_effect: loadImageSync(`${UI_BASE}/disasters_board_effects__board_effect_storm.png`),
 
     // ═══ FX / Flags (player colors) ═══
     flag_blue: loadImageSync(`${UI_BASE}/fx_ui_overlays_flags__fx_asset_34.png`),
