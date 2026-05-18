@@ -206,7 +206,7 @@ router.post('/direct-login', async (req, res) => {
       }
     }
 
-    // Fallback: mock user data
+    // Fallback: mock user data using real 42 Istanbul coalitions
     if (!fetched) {
       // Deterministic ID from login string (so same login = same user)
       let hash = 0;
@@ -216,9 +216,15 @@ router.post('/direct-login', async (req, res) => {
       }
       const mockId = Math.abs(hash) % 100000 + 1000;
 
-      const colors = ['#3B82F6', '#EF4444', '#22C55E', '#A855F7', '#38bdf8', '#fb923c'];
-      const names = ['The Order', 'The Assembly', 'The Alliance', 'The Federation'];
-      const idx = mockId % colors.length;
+      // Real 42 Istanbul campus coalitions
+      const ISTANBUL_COALITIONS = [
+        { id: 363, name: 'Gryffindor', color: '#ff0000', imageUrl: 'https://cdn.intra.42.fr/coalition/image/363/gryffindor.svg' },
+        { id: 365, name: 'Slytherin',  color: '#00cc00', imageUrl: 'https://cdn.intra.42.fr/coalition/image/365/slytherin.svg'  },
+        { id: 364, name: 'Ravenclaw',  color: '#0080cc', imageUrl: 'https://cdn.intra.42.fr/coalition/image/364/ravenclaw.svg'  },
+        { id: 366, name: 'Hufflepuff', color: '#ffaa00', imageUrl: 'https://cdn.intra.42.fr/coalition/image/366/hufflepuff.svg' },
+      ];
+
+      const mockCoalition = ISTANBUL_COALITIONS[mockId % ISTANBUL_COALITIONS.length];
 
       userData = {
         id: mockId,
@@ -226,12 +232,7 @@ router.post('/direct-login', async (req, res) => {
         displayname: login,
         image: { link: null },
       };
-      coalition = {
-        id: (mockId % 4) + 1,
-        name: names[mockId % names.length],
-        color: colors[idx],
-        imageUrl: null,
-      };
+      coalition = mockCoalition;
       console.log(`[OAuth] Mock login: ${login} (id=${mockId}, coalition=${coalition.name})`);
     }
 

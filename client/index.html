@@ -65,24 +65,45 @@
 
           <div style="margin-bottom: 16px;">
             <label style="font-size: 0.75rem; font-weight: 600; color: #94a3b8; display: block; margin-bottom: 8px;">Choose Coalition:</label>
-            <div class="coalition-picker" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
-              <div class="coalition-choice active" data-id="1" data-name="The Order" data-color="#3B82F6" style="border: 2px solid #3B82F6; background: rgba(59, 130, 246, 0.15); border-radius: 8px; padding: 10px 4px; text-align: center; cursor: pointer; transition: all 0.2s ease;">
-                <div style="font-size: 1.2rem; margin-bottom: 4px;">🛡️</div>
-                <div style="font-size: 0.6rem; font-weight: 700; color: #60a5fa; letter-spacing: 0.5px;">ORDER</div>
-              </div>
-              <div class="coalition-choice" data-id="2" data-name="The Assembly" data-color="#EF4444" style="border: 2px solid transparent; background: rgba(239, 68, 68, 0.05); border-radius: 8px; padding: 10px 4px; text-align: center; cursor: pointer; transition: all 0.2s ease;">
-                <div style="font-size: 1.2rem; margin-bottom: 4px;">🔬</div>
-                <div style="font-size: 0.6rem; font-weight: 700; color: #f87171; letter-spacing: 0.5px;">ASSEMBLY</div>
-              </div>
-              <div class="coalition-choice" data-id="3" data-name="The Alliance" data-color="#22C55E" style="border: 2px solid transparent; background: rgba(34, 197, 94, 0.05); border-radius: 8px; padding: 10px 4px; text-align: center; cursor: pointer; transition: all 0.2s ease;">
-                <div style="font-size: 1.2rem; margin-bottom: 4px;">🌿</div>
-                <div style="font-size: 0.6rem; font-weight: 700; color: #4ade80; letter-spacing: 0.5px;">ALLIANCE</div>
-              </div>
-              <div class="coalition-choice" data-id="4" data-name="The Federation" data-color="#A855F7" style="border: 2px solid transparent; background: rgba(168, 85, 247, 0.05); border-radius: 8px; padding: 10px 4px; text-align: center; cursor: pointer; transition: all 0.2s ease;">
-                <div style="font-size: 1.2rem; margin-bottom: 4px;">⚡</div>
-                <div style="font-size: 0.6rem; font-weight: 700; color: #c084fc; letter-spacing: 0.5px;">FEDERATION</div>
-              </div>
+          <div class="coalition-picker" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+
+            <!-- Gryffindor – #ff0000 – ID 363 -->
+            <div class="coalition-choice active"
+                 data-id="363" data-name="Gryffindor" data-color="#ff0000"
+                 style="border: 2px solid #ff0000; background: rgba(255,0,0,0.15); border-radius: 8px; padding: 10px 4px; text-align: center; cursor: pointer; transition: all 0.2s ease;">
+              <img src="https://cdn.intra.42.fr/coalition/image/363/gryffindor.svg"
+                   alt="Gryffindor" style="width:32px;height:32px;margin-bottom:4px;filter:drop-shadow(0 0 4px #ff0000aa);">
+              <div style="font-size: 0.55rem; font-weight: 700; color: #ff6060; letter-spacing: 0.5px;">GRYFFINDOR</div>
             </div>
+
+            <!-- Slytherin – #00cc00 – ID 365 -->
+            <div class="coalition-choice"
+                 data-id="365" data-name="Slytherin" data-color="#00cc00"
+                 style="border: 2px solid transparent; background: rgba(0,204,0,0.05); border-radius: 8px; padding: 10px 4px; text-align: center; cursor: pointer; transition: all 0.2s ease;">
+              <img src="https://cdn.intra.42.fr/coalition/image/365/slytherin.svg"
+                   alt="Slytherin" style="width:32px;height:32px;margin-bottom:4px;">
+              <div style="font-size: 0.55rem; font-weight: 700; color: #4ade80; letter-spacing: 0.5px;">SLYTHERIN</div>
+            </div>
+
+            <!-- Ravenclaw – #0080cc – ID 364 -->
+            <div class="coalition-choice"
+                 data-id="364" data-name="Ravenclaw" data-color="#0080cc"
+                 style="border: 2px solid transparent; background: rgba(0,128,204,0.05); border-radius: 8px; padding: 10px 4px; text-align: center; cursor: pointer; transition: all 0.2s ease;">
+              <img src="https://cdn.intra.42.fr/coalition/image/364/ravenclaw.svg"
+                   alt="Ravenclaw" style="width:32px;height:32px;margin-bottom:4px;">
+              <div style="font-size: 0.55rem; font-weight: 700; color: #60a5fa; letter-spacing: 0.5px;">RAVENCLAW</div>
+            </div>
+
+            <!-- Hufflepuff – #ffaa00 – ID 366 -->
+            <div class="coalition-choice"
+                 data-id="366" data-name="Hufflepuff" data-color="#ffaa00"
+                 style="border: 2px solid transparent; background: rgba(255,170,0,0.05); border-radius: 8px; padding: 10px 4px; text-align: center; cursor: pointer; transition: all 0.2s ease;">
+              <img src="https://cdn.intra.42.fr/coalition/image/366/hufflepuff.svg"
+                   alt="Hufflepuff" style="width:32px;height:32px;margin-bottom:4px;">
+              <div style="font-size: 0.55rem; font-weight: 700; color: #fbbf24; letter-spacing: 0.5px;">HUFFLEPUFF</div>
+            </div>
+
+          </div>
           </div>
           
           <div id="guest-login-error" class="login-error" style="display: none; margin-bottom: 12px;"></div>
@@ -90,6 +111,12 @@
           <button class="btn-42-login" id="btn-start-singleplayer" style="justify-content: center; width: 100%; background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple)); box-shadow: 0 4px 20px rgba(0,186,188,0.3);">
             🎮 Play vs 3 Bots
           </button>
+          
+          <div style="margin-top: 15px; text-align: center;">
+            <button id="btn-show-manual" style="background: transparent; border: 1px solid rgba(255,255,255,0.2); color: #94a3b8; padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s;">
+              📖 Nasıl Oynanır? (Kullanım Kılavuzu)
+            </button>
+          </div>
         </div>
         <p class="login-footer">Game Jam 2025 · 42 Network</p>
       </div>
@@ -169,7 +196,7 @@
   <!-- ═══ GAME SCREEN ═══ -->
   <div id="screen-game" class="screen">
     <!-- Top HUD -->
-    <div class="game-hud-top">
+    <div class="game-hud-top" style="position:relative;">
       <!-- Resource Panel (Left) -->
       <div class="hud-resources" id="hud-resources">
         <div class="resource" id="res-wood">
@@ -211,6 +238,52 @@
       <!-- Turn Timer Bar (Now attached to the bottom of the HUD) -->
       <div class="turn-timer" id="turn-timer">
         <div class="turn-timer-bar" id="turn-timer-bar" style="width:100%"></div>
+      </div>
+    </div>
+
+    <!-- Exit button — fixed, right below timer bar, top-right corner over the sea -->
+    <button id="btn-exit-game"
+      title="Lobiye Dön"
+      onclick="document.getElementById('modal-confirm-leave').classList.remove('hidden');"
+      onmouseover="this.style.background='rgba(239,68,68,0.35)';this.style.color='#fff';"
+      onmouseout="this.style.background='rgba(10,15,30,0.80)';this.style.color='#f87171';"
+      style="
+        display: none;
+        position: fixed;
+        top: var(--game-hud-height, 72px);
+        right: 0;
+        z-index: 600;
+        background: rgba(10,15,30,0.80);
+        border: 1px solid rgba(239,68,68,0.5);
+        border-top: none;
+        border-right: none;
+        border-bottom-left-radius: 8px;
+        color: #f87171;
+        padding: 4px 12px 4px 10px;
+        font-size: 0.65rem;
+        font-weight: 700;
+        cursor: pointer;
+        letter-spacing: 0.5px;
+        font-family: 'Outfit', sans-serif;
+        backdrop-filter: blur(8px);
+        transition: background 0.15s ease, color 0.15s ease;
+        white-space: nowrap;
+      ">
+      🚪&nbsp;Lobiye Dön
+    </button>
+
+    <!-- Confirm Leave Modal -->
+    <div class="modal-overlay hidden" id="modal-confirm-leave">
+      <div class="modal-card" style="max-width:320px;text-align:center;">
+        <div style="font-size:2.5rem;margin-bottom:0.5rem;">🚪</div>
+        <h3 style="margin:0 0 0.5rem;color:var(--accent-red);">Oyundan Çık?</h3>
+        <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1.5rem;">
+          Oyunu terk edersen yerini bot alacak.<br>Gerçekten çıkmak istiyor musun?
+        </p>
+        <div style="display:flex;gap:10px;">
+          <button class="btn-modal btn-cancel" id="btn-leave-cancel" style="flex:1;justify-content:center;">Vazgeç</button>
+          <button class="btn-modal btn-confirm" id="btn-leave-confirm" style="flex:1;justify-content:center;background:var(--accent-red);">Evet, Çık</button>
+        </div>
       </div>
     </div>
 
@@ -314,21 +387,21 @@
           <div style="flex:1;">
             <p style="font-size:0.75rem;font-weight:700;margin-bottom:6px;color:var(--accent-red);">VER</p>
             <div class="trade-resource-picker" id="p2p-give">
-              <div class="trade-res-row" data-res="wood"><span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/wood_counter.png" class="trade-res-icon" alt="Wood"> WOOD</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
-              <div class="trade-res-row" data-res="stone"><span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/stone_counter.png" class="trade-res-icon" alt="Stone"> STONE</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
-              <div class="trade-res-row" data-res="iron"><span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/iron_counter.png" class="trade-res-icon" alt="Iron"> IRON</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
-              <div class="trade-res-row" data-res="gold"><span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/gold_counter.png" class="trade-res-icon" alt="Gold"> GOLD</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
-              <div class="trade-res-row" data-res="food"><span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/food_counter.png" class="trade-res-icon" alt="Food"> FOOD</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="wood"><span><img src="/assets/icon/wood.png" class="trade-res-icon" alt="Wood"> WOOD</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="stone"><span><img src="/assets/icon/stone.png" class="trade-res-icon" alt="Stone"> STONE</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="iron"><span><img src="/assets/icon/iron.png" class="trade-res-icon" alt="Iron"> IRON</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="gold"><span><img src="/assets/icon/gold.png" class="trade-res-icon" alt="Gold"> GOLD</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="food"><span><img src="/assets/icon/food.png" class="trade-res-icon" alt="Food"> FOOD</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
             </div>
           </div>
           <div style="flex:1;">
             <p style="font-size:0.75rem;font-weight:700;margin-bottom:6px;color:var(--accent-green);">İSTE</p>
             <div class="trade-resource-picker" id="p2p-receive">
-              <div class="trade-res-row" data-res="wood"><span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/wood_counter.png" class="trade-res-icon" alt="Wood"> WOOD</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
-              <div class="trade-res-row" data-res="stone"><span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/stone_counter.png" class="trade-res-icon" alt="Stone"> STONE</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
-              <div class="trade-res-row" data-res="iron"><span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/iron_counter.png" class="trade-res-icon" alt="Iron"> IRON</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
-              <div class="trade-res-row" data-res="gold"><span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/gold_counter.png" class="trade-res-icon" alt="Gold"> GOLD</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
-              <div class="trade-res-row" data-res="food"><span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/food_counter.png" class="trade-res-icon" alt="Food"> FOOD</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="wood"><span><img src="/assets/icon/wood.png" class="trade-res-icon" alt="Wood"> WOOD</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="stone"><span><img src="/assets/icon/stone.png" class="trade-res-icon" alt="Stone"> STONE</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="iron"><span><img src="/assets/icon/iron.png" class="trade-res-icon" alt="Iron"> IRON</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="gold"><span><img src="/assets/icon/gold.png" class="trade-res-icon" alt="Gold"> GOLD</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
+              <div class="trade-res-row" data-res="food"><span><img src="/assets/icon/food.png" class="trade-res-icon" alt="Food"> FOOD</span><button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button></div>
             </div>
           </div>
         </div>
@@ -405,23 +478,23 @@
       
       <div class="trade-resource-picker" id="discard-picker">
         <div class="trade-res-row" data-res="wood">
-          <span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/wood_counter.png" class="trade-res-icon" alt="Wood"> WOOD (<span class="res-owned">0</span>)</span>
+          <span><img src="/assets/icon/wood.png" class="trade-res-icon" alt="Wood"> WOOD (<span class="res-owned">0</span>)</span>
           <button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button>
         </div>
         <div class="trade-res-row" data-res="stone">
-          <span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/stone_counter.png" class="trade-res-icon" alt="Stone"> STONE (<span class="res-owned">0</span>)</span>
+          <span><img src="/assets/icon/stone.png" class="trade-res-icon" alt="Stone"> STONE (<span class="res-owned">0</span>)</span>
           <button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button>
         </div>
         <div class="trade-res-row" data-res="iron">
-          <span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/iron_counter.png" class="trade-res-icon" alt="Iron"> IRON (<span class="res-owned">0</span>)</span>
+          <span><img src="/assets/icon/iron.png" class="trade-res-icon" alt="Iron"> IRON (<span class="res-owned">0</span>)</span>
           <button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button>
         </div>
         <div class="trade-res-row" data-res="gold">
-          <span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/gold_counter.png" class="trade-res-icon" alt="Gold"> GOLD (<span class="res-owned">0</span>)</span>
+          <span><img src="/assets/icon/gold.png" class="trade-res-icon" alt="Gold"> GOLD (<span class="res-owned">0</span>)</span>
           <button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button>
         </div>
         <div class="trade-res-row" data-res="food">
-          <span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/food_counter.png" class="trade-res-icon" alt="Food"> FOOD (<span class="res-owned">0</span>)</span>
+          <span><img src="/assets/icon/food.png" class="trade-res-icon" alt="Food"> FOOD (<span class="res-owned">0</span>)</span>
           <button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button>
         </div>
       </div>
@@ -486,6 +559,65 @@
       <button class="btn-modal btn-confirm" id="btn-back-lobby">Back to Lobby</button>
     </div>
   </div>
+
+  <!-- Manual / How to Play Modal -->
+  <div class="modal-overlay hidden" id="modal-manual">
+    <div class="modal-card" style="max-width: 800px; width: 90%; max-height: 90vh; overflow-y: auto; text-align: left;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; margin-bottom: 15px;">
+        <h2 style="margin: 0; color: var(--accent-cyan); font-size: 1.5rem;">🌊 DEEP SEA PULSE: COALITION WARS</h2>
+        <button id="btn-close-manual" style="background: transparent; border: none; color: #fff; font-size: 1.5rem; cursor: pointer;">&times;</button>
+      </div>
+      
+      <div style="font-size: 0.9rem; color: #cbd5e1; line-height: 1.6;">
+        <h3 style="color: #fff; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px;">⚜️ Resmi Kullanım Kılavuzu & Strateji Rehberi</h3>
+        <p><strong>Deep Sea Pulse</strong>, klasik ada kolonizasyonu mekaniklerini tehlikeli derin deniz savaşları, gizli kalkan teknolojileri ve taktiksel donanma saldırıları ile birleştiren 4 oyunculu gerçek zamanlı bir strateji oyunudur.</p>
+
+        <h4 style="color: #fff; margin-top: 20px;">🧭 1. DERİN DENİZ HİKAYESİ VE KOALİSYONLAR</h4>
+        <p>Okyanusun derinliklerinden yayılan yüksek enerjili bir "Nabız" (Pulse), su altı kaynaklarını yüzeye çıkarmıştır. 4 büyük güç karşı karşıya geliyor:</p>
+        <ul style="list-style-type: none; padding: 0;">
+          <li><img src="https://cdn.intra.42.fr/coalition/image/363/gryffindor.svg" style="width:16px; vertical-align:middle; margin-right:5px;"> <strong>Gryffindor (Kırmızı):</strong> Askeri ittifak.</li>
+          <li><img src="https://cdn.intra.42.fr/coalition/image/365/slytherin.svg" style="width:16px; vertical-align:middle; margin-right:5px;"> <strong>Slytherin (Yeşil):</strong> Doğa ile uyumlu.</li>
+          <li><img src="https://cdn.intra.42.fr/coalition/image/364/ravenclaw.svg" style="width:16px; vertical-align:middle; margin-right:5px;"> <strong>Ravenclaw (Mavi):</strong> Bilim konseyi.</li>
+          <li><img src="https://cdn.intra.42.fr/coalition/image/366/hufflepuff.svg" style="width:16px; vertical-align:middle; margin-right:5px;"> <strong>Hufflepuff (Sarı):</strong> Ticaret birliği.</li>
+        </ul>
+
+        <h4 style="color: #fff; margin-top: 20px;">💎 2. TEMEL KAYNAKLAR</h4>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 10px;">
+          <div style="background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px; display: flex; align-items: center;"><img src="/assets/icon/wood.png" style="width:24px; margin-right:8px;"> <strong>WOOD:</strong> Gemi/Köy</div>
+          <div style="background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px; display: flex; align-items: center;"><img src="/assets/icon/stone.png" style="width:24px; margin-right:8px;"> <strong>STONE:</strong> Gemi/Köy</div>
+          <div style="background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px; display: flex; align-items: center;"><img src="/assets/icon/iron.png" style="width:24px; margin-right:8px;"> <strong>IRON:</strong> Şehir/Donanma/Kalkan</div>
+          <div style="background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px; display: flex; align-items: center;"><img src="/assets/icon/gold.png" style="width:24px; margin-right:8px;"> <strong>GOLD:</strong> Köy/Donanma/Kalkan</div>
+          <div style="background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px; display: flex; align-items: center;"><img src="/assets/icon/food.png" style="width:24px; margin-right:8px;"> <strong>FOOD:</strong> Köy/Şehir/Donanma</div>
+        </div>
+
+        <h4 style="color: #fff; margin-top: 20px;">🛠️ 3. İNŞA VE SAVAŞ MALİYETLERİ</h4>
+        <ul style="padding-left: 20px;">
+          <li>🛤️ <strong>Gemi İnşası (Yol):</strong> <img src="/assets/icon/wood.png" style="width:16px;"> + <img src="/assets/icon/stone.png" style="width:16px;"></li>
+          <li>🏡 <strong>Köy İnşası:</strong> <img src="/assets/icon/wood.png" style="width:16px;"> + <img src="/assets/icon/stone.png" style="width:16px;"> + <img src="/assets/icon/food.png" style="width:16px;"> + <img src="/assets/icon/gold.png" style="width:16px;"> (+1 Yıldız)</li>
+          <li>🏙️ <strong>Şehir Yükseltmesi:</strong> 3x<img src="/assets/icon/iron.png" style="width:16px;"> + 2x<img src="/assets/icon/food.png" style="width:16px;"> (+2 Yıldız, çift kaynak)</li>
+          <li>⚓ <strong>Donanma Saldırısı:</strong> <img src="/assets/icon/iron.png" style="width:16px;"> + <img src="/assets/icon/food.png" style="width:16px;"> + <img src="/assets/icon/gold.png" style="width:16px;"></li>
+          <li>🔰 <strong>Savunma Kalkanı:</strong> 3x<img src="/assets/icon/iron.png" style="width:16px;"> + 3x<img src="/assets/icon/gold.png" style="width:16px;"></li>
+        </ul>
+
+        <h4 style="color: #fff; margin-top: 20px;">🔄 4. OYUN AŞAMALARI</h4>
+        <p><strong>A. SETUP:</strong> Sırayla 2 Köy ve 2 Gemi yerleştir.</p>
+        <p><strong>B. ROLL:</strong> Zar at, kaynak topla.</p>
+        <p style="color: #fca5a5;"><strong>C. ⚡ 7 Fırtınası:</strong> Zar 7 gelirse fırtına kopar! 7'den fazla kaynağı olanlar yarısını feda eder.</p>
+        <p><strong>D. ROBBER:</strong> Zar 7 geldiğinde hırsızı taşı, rakibinden çal, o ada kaynak üretmesin.</p>
+        <p><strong>E. GAMEPLAY:</strong> İnşa et, takas yap, savaş.</p>
+
+        <h4 style="color: #fff; margin-top: 20px;">⚓ 5. BENZERSİZ TAKTİKSEL MEKANİKLER</h4>
+        <p><strong>1. Donanma Saldırısı:</strong> Orduya katılıp En Büyük Ordu (+2 Yıldız) olabilirsiniz veya <strong>rakibinizin gemisini (yolunu) yıkabilirsiniz.</strong> Sadece kendi geminize komşu olan rakip gemilerine saldırabilirsiniz!</p>
+        <p><strong>2. Savunma Kalkanı (🔰):</strong> Herhangi bir adanıza kalkan kurabilirsiniz. Kalkan gizlidir, rakip göremez. Rakip o adadaki geminize saldırırsa, kalkan kırılır ve saldırı savuşturulur!</p>
+
+        <h4 style="color: #fff; margin-top: 20px;">🏆 6. ZAFER (10 YILDIZ)</h4>
+        <p>Köy (1), Şehir (2), En Uzun Yol (+2), En Büyük Ordu (+2) ile toplam 10 Yıldıza ulaşan kazanır.</p>
+      </div>
+      
+      <button class="btn-modal btn-confirm" id="btn-close-manual-bottom" style="width: 100%; margin-top: 20px;">Anladım, Kapat</button>
+    </div>
+  </div>
+
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="js/assets.js"></script>

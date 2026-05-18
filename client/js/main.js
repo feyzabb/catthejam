@@ -33,8 +33,23 @@ const screens = {
 function showScreen(name) {
   Object.values(screens).forEach(s => s.classList.remove('active'));
   screens[name].classList.add('active');
-  if (name === 'game') initGameCanvas();
+  // Show exit button only during game
+  const exitBtn = $('#btn-exit-game');
+  if (exitBtn) exitBtn.style.display = name === 'game' ? 'block' : 'none';
+  if (name === 'game') {
+    initGameCanvas();
+    // Pin exit button exactly below the HUD (timer bar bottom edge)
+    requestAnimationFrame(() => {
+      const hud = document.querySelector('.game-hud-top');
+      if (hud) {
+        document.documentElement.style.setProperty(
+          '--game-hud-height', hud.getBoundingClientRect().bottom + 'px'
+        );
+      }
+    });
+  }
 }
+
 
 // ─── AUTH CHECK ────────────────────────────────────────────
 async function checkAuth() {
@@ -853,15 +868,6 @@ function renderGameState(gs) {
 
       if (shipImg && shipImg.complete) {
         ctx.drawImage(shipImg, -shipWidth / 2, -shipHeight / 2, shipWidth, shipHeight);
-        // Tint the ship with the player's coalition color using 'source-atop'
-        if (p && p.color) {
-          ctx.globalCompositeOperation = 'source-atop';
-          ctx.globalAlpha = 0.55;
-          ctx.fillStyle = p.color;
-          ctx.fillRect(-shipWidth / 2, -shipHeight / 2, shipWidth, shipHeight);
-          ctx.globalAlpha = 1.0;
-          ctx.globalCompositeOperation = 'source-over';
-        }
       } else {
         // Fallback: colored line
         ctx.globalCompositeOperation = 'source-over';
@@ -1456,20 +1462,52 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Guest Coalition Picker click logic
+  // Helper: convert "#rrggbb" to "r,g,b"
+  function hexToRgb(hex) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    return `${r},${g},${b}`;
+  }
+
   $$('.coalition-choice').forEach(choice => {
     choice.addEventListener('click', () => {
+      // Reset all
       $$('.coalition-choice').forEach(c => {
         c.classList.remove('active');
         c.style.borderColor = 'transparent';
-        const cColor = c.getAttribute('data-color');
-        c.style.background = 'rgba(' + (cColor === '#3B82F6' ? '59,130,246' : cColor === '#EF4444' ? '239,68,68' : cColor === '#22C55E' ? '34,197,94' : '168,85,247') + ', 0.05)';
+        const rgb = hexToRgb(c.getAttribute('data-color') || '#5B7C99');
+        c.style.background = `rgba(${rgb}, 0.05)`;
+        // Dim the logo image of inactive choices
+        const img = c.querySelector('img');
+        if (img) img.style.filter = '';
       });
+      // Activate chosen
       choice.classList.add('active');
       const color = choice.getAttribute('data-color');
+      const rgb = hexToRgb(color || '#5B7C99');
       choice.style.borderColor = color;
-      choice.style.background = 'rgba(' + (color === '#3B82F6' ? '59,130,246' : color === '#EF4444' ? '239,68,68' : color === '#22C55E' ? '34,197,94' : '168,85,247') + ', 0.15)';
+      choice.style.background = `rgba(${rgb}, 0.18)`;
+      // Glow active logo
+      const img = choice.querySelector('img');
+      if (img) img.style.filter = `drop-shadow(0 0 6px ${color}cc)`;
     });
   });
+
+  // Manual Modal event listeners
+  $('#btn-show-manual')?.addEventListener('click', () => {
+    $('#modal-manual')?.classList.remove('hidden');
+  });
+
+  $('#btn-close-manual')?.addEventListener('click', () => {
+    $('#modal-manual')?.classList.add('hidden');
+  });
+
+  $('#btn-close-manual-bottom')?.addEventListener('click', () => {
+    $('#modal-manual')?.classList.add('hidden');
+  });
+
 
   // Guest login button click
   $('#btn-start-singleplayer')?.addEventListener('click', async () => {
@@ -1486,9 +1524,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const activeChoice = $('.coalition-choice.active');
-    const coalitionId = activeChoice ? activeChoice.getAttribute('data-id') : '1';
-    const coalitionName = activeChoice ? activeChoice.getAttribute('data-name') : 'The Order';
-    const coalitionColor = activeChoice ? activeChoice.getAttribute('data-color') : '#3B82F6';
+    const coalitionId    = activeChoice ? activeChoice.getAttribute('data-id')    : '363';
+    const coalitionName  = activeChoice ? activeChoice.getAttribute('data-name')  : 'Gryffindor';
+    const coalitionColor = activeChoice ? activeChoice.getAttribute('data-color') : '#ff0000';
+    const coalitionImg   = activeChoice ? activeChoice.querySelector('img')?.src  : '';
 
     try {
       const res = await fetch('/auth/42/guest-login', {
@@ -1498,7 +1537,8 @@ document.addEventListener('DOMContentLoaded', () => {
           login: guestName,
           coalitionId,
           coalitionName,
-          coalitionColor
+          coalitionColor,
+          coalitionImageUrl: coalitionImg || null,
         })
       });
       const data = await res.json();
@@ -1676,6 +1716,24 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#btn-back-lobby')?.addEventListener('click', () => {
     $('#modal-game-over').classList.add('hidden');
     state.gameState = null;
+    state.socket.emit('leave_room');
+    showScreen('lobby');
+  });
+
+  // ─── IN-GAME EXIT BUTTON ─────────────────────────────────
+  $('#btn-exit-game')?.addEventListener('click', () => {
+    $('#modal-confirm-leave').classList.remove('hidden');
+  });
+
+  $('#btn-leave-cancel')?.addEventListener('click', () => {
+    $('#modal-confirm-leave').classList.add('hidden');
+  });
+
+  $('#btn-leave-confirm')?.addEventListener('click', () => {
+    $('#modal-confirm-leave').classList.add('hidden');
+    $('#modal-discard').classList.add('hidden');
+    state.gameState = null;
+    state.selectedAction = null;
     state.socket.emit('leave_room');
     showScreen('lobby');
   });

@@ -872,7 +872,30 @@ class GameEngine {
       receive,
     });
 
+    // Auto-respond for bots
+    setTimeout(() => {
+      const bots = players.filter(p => p.isBot && p.id !== playerId);
+      for (const bot of bots) {
+        // Simple bot logic: reject if it doesn't have the requested resources
+        let canAfford = true;
+        for (const [type, amount] of Object.entries(receive)) {
+          if ((bot.resources[type] || 0) < amount) {
+            canAfford = false;
+            break;
+          }
+        }
+        
+        // Even if it can afford, add some randomness so bots don't always accept
+        if (canAfford && Math.random() > 0.3) {
+           this.handleTradeResponse(bot.id, tradeId, 'ACCEPT');
+        } else {
+           this.handleTradeResponse(bot.id, tradeId, 'REJECT');
+        }
+      }
+    }, 1500); // 1.5s delay to make it feel like they are "thinking"
+
     return { success: true, tradeId };
+
   }
 
   handleTradeResponse(responderId, tradeId, responseType, counterGive, counterReceive) {
