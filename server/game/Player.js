@@ -28,9 +28,10 @@ class Player {
     this.isReady = false;
     this.isConnected = true;
 
-    // Player color for the board (fixed per seat)
-    const colors = ['#3B82F6', '#EF4444', '#22C55E', '#A855F7'];
-    this.color = colors[playerIndex] || '#5B7C99';
+    // Player color for the board — use coalition color so each player's pieces
+    // visually match their 42 Intra coalition. Fall back to seat index if no coalition.
+    const fallbackColors = ['#3B82F6', '#EF4444', '#22C55E', '#A855F7'];
+    this.color = userData.coalitionColor || fallbackColors[playerIndex] || '#5B7C99';
 
     // Resources (Catan-style, 5 types)
     this.resources = {

@@ -117,6 +117,24 @@ class GameEngine {
     } else if (this.currentPhase === 'ROLL') {
       // Auto-roll
       this._rollDice();
+    } else if (this.currentPhase === 'DISCARD') {
+      // Auto-discard for any player still waiting (bots or idle humans)
+      const players = this.room.getPlayers();
+      for (const p of players) {
+        const needed = this.discardState[p.id];
+        if (!needed) continue;
+        // Auto-discard resources randomly
+        const toDiscard = {};
+        let remaining = needed;
+        const RESOURCE_TYPES_LOCAL = ['wood', 'stone', 'iron', 'gold', 'food'];
+        for (const type of RESOURCE_TYPES_LOCAL) {
+          if (remaining <= 0) break;
+          const available = p.resources[type] || 0;
+          const take = Math.min(available, remaining);
+          if (take > 0) { toDiscard[type] = take; remaining -= take; }
+        }
+        this._handleDiscardResources(p, { resources: toDiscard }, players);
+      }
     } else if (this.currentPhase === 'GAMEPLAY' || this.currentPhase === 'ROBBER') {
       // Don't auto-pass if current player has an active trade negotiation
       const currentPlayerId = this.turnOrder[this.currentTurn];
@@ -137,6 +155,12 @@ class GameEngine {
     const players = this.room.getPlayers();
     const player = players.find(p => p.id === playerId);
     if (!player) return { success: false, error: 'Player not found' };
+
+    // DISCARD_RESOURCES is allowed from ANY player during the DISCARD phase —
+    // not just the active player. All other commands require it to be your turn.
+    if (command.type === 'DISCARD_RESOURCES') {
+      return this._handleDiscardResources(player, command, players);
+    }
 
     // Check if it's this player's turn
     if (this.turnOrder[this.currentTurn] !== playerId) {
@@ -166,8 +190,6 @@ class GameEngine {
         return this._handlePrepareShield(player, players);
       case 'APPLY_SHIELD':
         return this._handleApplyShield(player, command, players);
-      case 'DISCARD_RESOURCES':
-        return this._handleDiscardResources(player, command, players);
       default:
         return { success: false, error: 'Unknown command' };
     }
@@ -482,14 +504,20 @@ class GameEngine {
       }
 
       this.broadcast('dice_rolled', { dice1: die1, dice2: die2, total, currentTurn: this.turnOrder[this.currentTurn] });
-      
+
+      // Build a human-readable discard list for the client overlay
+      const discardList = Object.entries(this.discardState).map(([pid, amt]) => {
+        const p = players.find(pl => pl.id === pid);
+        return { playerId: pid, login: p ? p.login : pid, amount: amt };
+      });
+
       if (needsDiscard) {
         this.currentPhase = 'DISCARD';
-        this.broadcast('game:dice', { dice: [die1, die2], total, phase: 'DISCARD' });
+        this.broadcast('game:dice', { dice: [die1, die2], total, phase: 'DISCARD', discardList });
         this._broadcastState(players);
       } else {
         this.currentPhase = 'ROBBER';
-        this.broadcast('game:dice', { dice: [die1, die2], total, phase: 'ROBBER' });
+        this.broadcast('game:dice', { dice: [die1, die2], total, phase: 'ROBBER', discardList: [] });
         this._broadcastState(players);
       }
       return;
@@ -1035,10 +1063,25 @@ class GameEngine {
   checkBotTurn() {
     if (this.currentPhase === 'ENDED' || this.currentPhase === 'WAITING') return;
 
+    const players = this.room.getPlayers();
+
+    // During DISCARD phase, trigger auto-discard for ALL bots who still need to discard
+    if (this.currentPhase === 'DISCARD') {
+      const botsNeedingDiscard = players.filter(p => p.isBot && this.discardState[p.id]);
+      if (botsNeedingDiscard.length > 0) {
+        if (this.botTimeout) clearTimeout(this.botTimeout);
+        this.botTimeout = setTimeout(() => {
+          for (const bot of botsNeedingDiscard) {
+            this.executeBotTurn(bot, players);
+          }
+        }, 1000);
+      }
+      return;
+    }
+
     const currentPlayerId = this.turnOrder[this.currentTurn];
     if (!currentPlayerId) return;
 
-    const players = this.room.getPlayers();
     const currentActPlayer = players.find(p => p.id === currentPlayerId);
     if (!currentActPlayer || !currentActPlayer.isBot) return;
 
@@ -1159,6 +1202,21 @@ class GameEngine {
       } else {
         this.currentPhase = 'GAMEPLAY';
         this._broadcastState(players);
+      }
+    } else if (this.currentPhase === 'DISCARD') {
+      // Bot auto-discards half its resources if it has more than 7
+      const needed = this.discardState[bot.id];
+      if (needed) {
+        const toDiscard = {};
+        let remaining = needed;
+        const RESOURCE_TYPES_LOCAL = ['wood', 'stone', 'iron', 'gold', 'food'];
+        for (const type of RESOURCE_TYPES_LOCAL) {
+          if (remaining <= 0) break;
+          const available = bot.resources[type] || 0;
+          const take = Math.min(available, remaining);
+          if (take > 0) { toDiscard[type] = take; remaining -= take; }
+        }
+        this._handleDiscardResources(bot, { resources: toDiscard }, players);
       }
     }
   }

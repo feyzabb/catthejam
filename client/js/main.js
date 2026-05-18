@@ -237,40 +237,109 @@ function connectSocket() {
     overlay.classList.remove('hidden');
     d1.classList.add('rolling'); d2.classList.add('rolling');
     d1.textContent = '?'; d2.textContent = '?';
+
     setTimeout(() => {
       d1.classList.remove('rolling'); d2.classList.remove('rolling');
       d1.textContent = data.dice[0]; d2.textContent = data.dice[1];
       $('#dice-total').textContent = `Total: ${data.total}`;
-      
-      // Lightning effect for 7
+
       if (data.total === 7) {
-        addEventLog(`⚡ Fırtına koptu! Hırsız geliyor...`);
-        const lightning = document.createElement('div');
-        lightning.style.position = 'fixed';
-        lightning.style.top = '0'; lightning.style.left = '0';
-        lightning.style.width = '100vw'; lightning.style.height = '100vh';
-        lightning.style.background = '#fff';
-        lightning.style.opacity = '0';
-        lightning.style.zIndex = '9999';
-        lightning.style.pointerEvents = 'none';
-        lightning.style.transition = 'opacity 0.1s ease';
-        document.body.appendChild(lightning);
-        
-        // Flashes
-        setTimeout(() => lightning.style.opacity = '0.8', 100);
-        setTimeout(() => lightning.style.opacity = '0', 200);
-        setTimeout(() => lightning.style.opacity = '0.6', 400);
-        setTimeout(() => lightning.style.opacity = '0', 500);
-        setTimeout(() => lightning.style.opacity = '0.9', 700);
-        setTimeout(() => lightning.remove(), 900);
+        addEventLog('⚡ Fırtına koptu! Hırsız geliyor...');
+
+        // ── 1. Lightning flashes ──────────────────────────────
+        const flash = document.createElement('div');
+        flash.style.cssText = `
+          position:fixed;inset:0;
+          background:#fff;opacity:0;z-index:9000;
+          pointer-events:none;transition:opacity 0.08s ease;
+        `;
+        document.body.appendChild(flash);
+        const flashes = [
+          [80,  0.9], [160, 0],
+          [320, 0.7], [440, 0],
+          [600, 1.0], [750, 0],
+        ];
+        flashes.forEach(([ms, op]) => setTimeout(() => flash.style.opacity = op, ms));
+        setTimeout(() => flash.remove(), 900);
+
+        // ── 2. Full-screen storm overlay ─────────────────────
+        const storm = document.createElement('div');
+        storm.id = 'storm-overlay';
+        storm.style.cssText = `
+          position:fixed;inset:0;z-index:8500;
+          display:flex;flex-direction:column;
+          align-items:center;justify-content:center;
+          background:radial-gradient(ellipse at center, rgba(30,0,60,0.97) 0%, rgba(0,0,0,0.98) 100%);
+          backdrop-filter:blur(6px);
+          animation:stormIn 0.3s ease forwards;
+          font-family:'Outfit','Inter',sans-serif;
+          color:#fff;text-align:center;padding:2rem;
+        `;
+
+        // Inject keyframe once
+        if (!document.getElementById('storm-style')) {
+          const s = document.createElement('style');
+          s.id = 'storm-style';
+          s.textContent = `
+            @keyframes stormIn  { from{opacity:0;transform:scale(1.04)} to{opacity:1;transform:scale(1)} }
+            @keyframes stormOut { from{opacity:1;transform:scale(1)} to{opacity:0;transform:scale(0.96)} }
+            @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-5px)} 80%{transform:translateX(5px)} }
+            @keyframes pulse7 { 0%,100%{text-shadow:0 0 20px #a855f7,0 0 60px #7c3aed} 50%{text-shadow:0 0 40px #f59e0b,0 0 100px #d97706} }
+            @keyframes fadeUpIn { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+          `;
+          document.head.appendChild(s);
+        }
+
+        const discardList = data.discardList || [];
+        const needsDiscard = discardList.length > 0;
+
+        let discardHTML = '';
+        if (needsDiscard) {
+          discardHTML = `
+            <div style="margin-top:1.2rem;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.35);
+                        border-radius:12px;padding:1rem 1.5rem;animation:fadeUpIn 0.4s 0.4s ease both;">
+              <p style="font-size:0.8rem;font-weight:700;color:#f87171;letter-spacing:1px;
+                         text-transform:uppercase;margin:0 0 0.6rem;">🃏 Kart Feda Etmesi Gerekenler</p>
+              ${discardList.map(d => `
+                <div style="display:flex;align-items:center;justify-content:center;gap:8px;
+                             font-size:0.95rem;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.06);">
+                  <span style="color:#fbbf24;font-weight:700;">${d.login}</span>
+                  <span style="color:#94a3b8;">→</span>
+                  <span style="color:#f87171;font-weight:700;">${d.amount} kart feda edecek</span>
+                </div>
+              `).join('')}
+            </div>`;
+        }
+
+        storm.innerHTML = `
+          <div style="font-size:4.5rem;animation:shake 0.5s 0.2s ease;">⚡</div>
+          <h2 style="font-size:2.8rem;font-weight:900;margin:0.4rem 0 0;
+                     animation:pulse7 1.5s ease infinite;letter-spacing:2px;">ZAR 7!</h2>
+          <p style="font-size:1.15rem;color:#c4b5fd;margin:0.5rem 0 0;
+                    animation:fadeUpIn 0.4s 0.2s ease both;">
+            ${needsDiscard ? 'Fırtına koptu! Elinde 7\'den fazla kart olanlar feda etmeli.' : 'Fırtına koptu! Hırsız figürünü taşı.'}
+          </p>
+          ${discardHTML}
+          <p style="margin-top:1.5rem;font-size:0.78rem;color:#475569;
+                    animation:fadeUpIn 0.4s 0.8s ease both;">
+            ${needsDiscard ? 'Oyun kart feda işlemi tamamlanınca devam edecek...' : 'Hırsızı yeni bir karonun üzerine taşı...'}
+          </p>
+        `;
+        document.body.appendChild(storm);
+
+        // Auto-dismiss after 2.8s → stateUpdate discard modal takes over
+        setTimeout(() => {
+          storm.style.animation = 'stormOut 0.4s ease forwards';
+          setTimeout(() => storm.remove(), 400);
+        }, 2800);
+
+      } else {
+        addEventLog(`🎲 Rolled a ${data.total}!`);
       }
     }, 500);
-    
-    if (data.total !== 7) {
-      addEventLog(`🎲 Rolled a ${data.total}!`);
-    }
-    
-    setTimeout(() => overlay.classList.add('hidden'), 3500);
+
+    // Hide dice overlay (7→ keep longer for drama, others 2.5s)
+    setTimeout(() => overlay.classList.add('hidden'), data.total === 7 ? 4000 : 2500);
   });
 
   s.on('game:ended', ({ placements }) => {
@@ -758,45 +827,53 @@ function renderGameState(gs) {
   for (const edge of gs.grid.edges) {
     if (edge.road) {
       const p = gs.players.find(pl => pl.id === edge.road.playerId);
-      
-      // Select the right merchant ship asset based on player color/index
-      let shipImg = GameAssets.merchant_blue;
-      if (p) {
-        if (p.color.includes('EF4444')) shipImg = GameAssets.merchant_red;
-        else if (p.color.includes('22C55E')) shipImg = GameAssets.merchant_green;
-        else if (p.color.includes('A855F7')) shipImg = GameAssets.merchant_purple;
-      }
-      
+
+      // Pick a base ship asset (all are white/neutral so we can tint)
+      // Use blue as the universal base; we tint with composite below
+      const shipImg = GameAssets.merchant_blue;
+
+      const dx = edge.v2.x - edge.v1.x;
+      const dy = edge.v2.y - edge.v1.y;
+      const angle = Math.atan2(dy, dx);
+      const midX = (edge.v1.x + edge.v2.x) / 2;
+      const midY = (edge.v1.y + edge.v2.y) / 2;
+
+      // Out-of-sync dynamic bobbing and rocking calculations
+      const phaseOffset = (midX * 0.03 + midY * 0.04);
+      const tBob = time * 2.2 + phaseOffset;
+      const bobY = Math.sin(tBob) * 2.5;
+      const rockAngle = Math.cos(tBob * 0.7) * 0.08;
+
+      const shipWidth = 32;
+      const shipHeight = 48;
+
+      ctx.save();
+      ctx.translate(midX, midY + bobY);
+      ctx.rotate(angle + Math.PI / 2 + rockAngle);
+
       if (shipImg && shipImg.complete) {
-        const dx = edge.v2.x - edge.v1.x;
-        const dy = edge.v2.y - edge.v1.y;
-        const angle = Math.atan2(dy, dx);
-        const midX = (edge.v1.x + edge.v2.x) / 2;
-        const midY = (edge.v1.y + edge.v2.y) / 2;
-        
-        // Out-of-sync dynamic bobbing and rocking calculations
-        const phaseOffset = (midX * 0.03 + midY * 0.04);
-        const tBob = time * 2.2 + phaseOffset;
-        const bobY = Math.sin(tBob) * 2.5; // slow up-and-down wave floating
-        const rockAngle = Math.cos(tBob * 0.7) * 0.08; // gentle left-to-right rock angle
-        
-        ctx.save();
-        ctx.translate(midX, midY + bobY);
-        // Add 90 degrees (Math.PI / 2) because ship assets usually point upwards + rocking
-        ctx.rotate(angle + Math.PI / 2 + rockAngle);
-        const shipWidth = 32;
-        const shipHeight = 48;
         ctx.drawImage(shipImg, -shipWidth / 2, -shipHeight / 2, shipWidth, shipHeight);
-        ctx.restore();
+        // Tint the ship with the player's coalition color using 'source-atop'
+        if (p && p.color) {
+          ctx.globalCompositeOperation = 'source-atop';
+          ctx.globalAlpha = 0.55;
+          ctx.fillStyle = p.color;
+          ctx.fillRect(-shipWidth / 2, -shipHeight / 2, shipWidth, shipHeight);
+          ctx.globalAlpha = 1.0;
+          ctx.globalCompositeOperation = 'source-over';
+        }
       } else {
-        // Fallback to line
+        // Fallback: colored line
+        ctx.globalCompositeOperation = 'source-over';
         ctx.lineWidth = 6;
         ctx.strokeStyle = p ? p.color : '#fff';
         ctx.beginPath();
-        ctx.moveTo(edge.v1.x, edge.v1.y);
-        ctx.lineTo(edge.v2.x, edge.v2.y);
+        ctx.moveTo(-shipWidth / 2, 0);
+        ctx.lineTo(shipWidth / 2, 0);
         ctx.stroke();
       }
+
+      ctx.restore();
     }
   }
 
@@ -1003,19 +1080,31 @@ function updateHUD(gs) {
   const currentPlayer = gs.players.find(p => p.id === gs.currentPlayerId);
   $('#status-turn').textContent = currentPlayer ? `${currentPlayer.login}'s Turn` : '';
 
-  // Styled player cards
+  // Styled player cards with coalition info
   $('#hud-players').innerHTML = gs.players.map(p => {
     const isActive = p.id === gs.currentPlayerId;
     const isLongestRoad = p.id === gs.longestRoadPlayerId;
     const isLargestArmy = p.id === gs.largestArmyPlayerId;
+    const isMe = p.id === state.user?.id;
     const totalCards = Object.values(p.resources).reduce((a,b) => a+b, 0);
     const armyText = p.knightsPlayed > 0 ? ` <span style="color:var(--accent-cyan); font-size:0.85rem;" title="Donanma Gücü">⚔️x${p.knightsPlayed}</span>` : '';
     const shieldText = p.unplayedShields > 0 ? ` <span style="color:var(--accent-green); font-size:0.85rem;" title="Aktif Kalkan (Envanterde)">🔰x${p.unplayedShields}</span>` : '';
-    
-    return `<div class="hud-player ${isActive ? 'active-turn' : ''}" style="border-color:${p.color}">
-      <span class="p-name">${p.login}${armyText}${shieldText}</span>
-      <span class="p-vp">⭐${p.victoryPoints}${isLongestRoad ? ' 🛤️' : ''}${isLargestArmy ? ' 🏆' : ''}</span>
-      <span class="p-cards">🃏${totalCards}</span>
+    const coalitionName = p.coalitionName || '';
+    const coalitionColor = p.coalitionColor || p.color || '#5B7C99';
+    const discardNeeded = gs.discardState && gs.discardState[p.id];
+    const discardBadge = discardNeeded ? `<span style="color:var(--accent-red);font-size:0.75rem;" title="Bu oyuncu kart feda etmeli!"> ⚠️-${discardNeeded}</span>` : '';
+    const meBorder = isMe ? `box-shadow: 0 0 0 2px ${coalitionColor}, 0 0 10px ${coalitionColor}55;` : '';
+
+    return `<div class="hud-player ${isActive ? 'active-turn' : ''}" style="border-color:${coalitionColor}; ${meBorder}">
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px;">
+        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${coalitionColor};flex-shrink:0;"></span>
+        <span class="p-name" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.login}${isMe ? ' <span style="opacity:0.6;font-size:0.7rem;">(Sen)</span>' : ''}${armyText}${shieldText}${discardBadge}</span>
+        <span class="p-vp">⭐${p.victoryPoints}${isLongestRoad ? ' 🛤️' : ''}${isLargestArmy ? ' 🏆' : ''}</span>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        ${coalitionName ? `<span style="font-size:0.6rem;font-weight:700;color:${coalitionColor};letter-spacing:0.5px;opacity:0.9;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:80px;">${coalitionName}</span>` : '<span></span>'}
+        <span class="p-cards">🃏${totalCards}</span>
+      </div>
     </div>`;
   }).join('');
 
@@ -1156,6 +1245,22 @@ function updateUIControls(gs) {
     rollBtn.classList.add('hidden');
     allBtns.forEach(b => b.classList.add('disabled'));
     endBtn.classList.add('disabled');
+
+    // Make sure discard modal shows for non-active players if they need to discard
+    if (gs.phase === 'DISCARD') {
+      if (gs.discardState && gs.discardState[state.user.id]) {
+        const required = gs.discardState[state.user.id];
+        $('#discard-target-text').textContent = `Atman Gereken: ${required}`;
+        $('#discard-required').textContent = required;
+        $('#modal-discard').classList.remove('hidden');
+        updateDiscardModal();
+      } else {
+        $('#modal-discard').classList.add('hidden');
+      }
+    } else {
+      $('#modal-discard').classList.add('hidden');
+    }
+
     return;
   }
 
@@ -1193,9 +1298,15 @@ function updateUIControls(gs) {
     } else {
       $('#modal-discard').classList.add('hidden');
     }
-  } else if (gs.phase === 'GAMEPLAY' || gs.phase === 'SETUP' || gs.phase === 'ROBBER' || gs.phase === 'NAVY_TARGETING' || gs.phase === 'SHIELD_TARGETING') {
+  } else if (gs.phase === 'GAMEPLAY') {
     rollBtn.classList.add('hidden');
     endBtn.classList.remove('hidden');
+  } else if (gs.phase === 'SETUP' || gs.phase === 'ROBBER' || gs.phase === 'NAVY_TARGETING' || gs.phase === 'SHIELD_TARGETING') {
+    rollBtn.classList.add('hidden');
+    endBtn.classList.add('hidden');
+    if (gs.phase !== 'SETUP') {
+      allBtns.forEach(b => b.classList.add('disabled'));
+    }
   } else {
     rollBtn.classList.add('hidden');
     endBtn.classList.add('hidden');
