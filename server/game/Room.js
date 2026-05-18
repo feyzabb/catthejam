@@ -9,7 +9,7 @@ const GameEngine = require('./GameEngine');
 const leaderboard = require('../database/leaderboard');
 
 class Room {
-  constructor(name, creatorData, broadcastToRoom) {
+  constructor(name, creatorData, broadcastToRoom, sendToPlayerFn) {
     this.id = uuidv4().slice(0, 8).toUpperCase();
     this.name = name || `${creatorData.login}'s Room`;
     this.state = 'lobby';
@@ -19,6 +19,7 @@ class Room {
     this.playerOrder = [];
     this.engine = null;
     this._broadcastToRoom = broadcastToRoom;
+    this._sendToPlayer = sendToPlayerFn;
   }
 
   addPlayer(userData, socketId) {
@@ -66,6 +67,8 @@ class Room {
     this.state = 'playing';
     this.engine = new GameEngine(this, (event, data) => {
       this._broadcastToRoom(this.id, event, data);
+    }, (socketId, event, data) => {
+      if (this._sendToPlayer) this._sendToPlayer(socketId, event, data);
     });
     this.engine.initialize(this.getPlayers());
     this._broadcastToRoom(this.id, 'room:gameStart', {

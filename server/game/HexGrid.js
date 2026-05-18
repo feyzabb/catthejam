@@ -200,6 +200,89 @@ class HexGrid {
   }
 
   /**
+   * Get hexes adjacent to an edge (the two hexes sharing the edge).
+   */
+  getHexesForEdge(edgeId) {
+    const edge = this.edges.get(edgeId);
+    if (!edge) return [];
+    const v1 = this.vertices.get(edge.v1Id);
+    const v2 = this.vertices.get(edge.v2Id);
+    if (!v1 || !v2) return [];
+
+    const hexKeysV1 = v1.adjacentHexes.map(h => HexGrid.key(h.q, h.r));
+    const hexKeysV2 = v2.adjacentHexes.map(h => HexGrid.key(h.q, h.r));
+    
+    // Intersection
+    const sharedKeys = hexKeysV1.filter(k => hexKeysV2.includes(k));
+    return sharedKeys.map(k => this.hexes.get(k)).filter(Boolean);
+  }
+
+  /**
+   * Get all 6 edges of a hex.
+   */
+  getEdgesForHex(q, r) {
+    const hexKey = HexGrid.key(q, r);
+    const result = [];
+    for (const [edgeId, edge] of this.edges) {
+      const edgeHexes = this.getHexesForEdge(edgeId);
+      if (edgeHexes.some(h => HexGrid.key(h.q, h.r) === hexKey)) {
+        result.push(edge);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Get valid navy targets for a player.
+   * Rule: Target road must belong to opponent AND must be on a hex where the attacker also has a road.
+   */
+  getValidNavyTargets(attackerId) {
+    const validTargets = [];
+    for (const [edgeId, edge] of this.edges) {
+      if (edge.road && edge.road.playerId !== attackerId) {
+        const adjacentHexes = this.getHexesForEdge(edgeId);
+        let attackerHasPresence = false;
+        for (const hex of adjacentHexes) {
+          const hexEdges = this.getEdgesForHex(hex.q, hex.r);
+          if (hexEdges.some(e => e.road && e.road.playerId === attackerId)) {
+            attackerHasPresence = true;
+            break;
+          }
+        }
+        if (attackerHasPresence) {
+          validTargets.push(edgeId);
+        }
+      }
+    }
+    return validTargets;
+  }
+
+  /**
+   * Get valid shield targets for a player.
+   * Rule: Target hex must have at least one edge containing the player's road.
+   */
+  getValidShieldTargets(playerId) {
+    const validHexes = [];
+    for (const [hexKey, hex] of this.hexes) {
+      const hexEdges = this.getEdgesForHex(hex.q, hex.r);
+      if (hexEdges.some(e => e.road && e.road.playerId === playerId)) {
+        validHexes.push(hexKey);
+      }
+    }
+    return validHexes;
+  }
+
+  /**
+   * Destroy a road on an edge.
+   */
+  destroyRoad(edgeId) {
+    const edge = this.edges.get(edgeId);
+    if (!edge || !edge.road) return false;
+    edge.road = null;
+    return true;
+  }
+
+  /**
    * Place a building (village or city) at a vertex.
    * Returns true if successful.
    */

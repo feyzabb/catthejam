@@ -25,21 +25,23 @@ const COSTS = {
   village:     { wood: 1, stone: 1, food: 1, gold: 1 },
   city:        { iron: 3, food: 2 },
   navy_attack: { iron: 1, food: 1, gold: 1 },
-  dev_card:    { iron: 1, food: 1, gold: 1 },
+  shield:      { iron: 0, gold: 0 },
 };
 
 class GameEngine {
-  constructor(room, broadcastFn) {
+  constructor(room, broadcastFn, sendToPlayerFn) {
     this.room = room;
     this.broadcast = broadcastFn;
+    this.sendToPlayer = sendToPlayerFn;
 
     // Game state
     this.grid = new HexGrid();
-    this.currentPhase = 'WAITING'; // 'WAITING' | 'SETUP' | 'ROLL' | 'GAMEPLAY' | 'ROBBER' | 'ENDED'
+    this.currentPhase = 'WAITING'; // 'WAITING' | 'SETUP' | 'ROLL' | 'GAMEPLAY' | 'ROBBER' | 'ENDED' | 'DISCARD'
     this.currentTurn = 0;   // player index whose turn it is
     this.turnOrder = [];     // array of player IDs in turn order
     this.lastDice = [0, 0]; // [die1, die2]
     this.turnNumber = 0;
+    this.discardState = {}; // { playerId: amountToDiscard }
 
     // Setup phase tracking
     this.setupRound = 0;    // 0 = first round, 1 = second round
@@ -154,10 +156,18 @@ class GameEngine {
         return this._handleMoveRobber(player, command, players);
       case 'END_TURN':
         return this._handleEndTurn(player, players);
-      case 'BUY_NAVY_ATTACK':
-        return this._handleBuyNavyAttack(player, players);
-      case 'BUY_DEV_CARD':
-        return this._handleBuyDevCard(player, players);
+      case 'BUY_NAVY':
+        return this._handleBuyNavy(player, command, players);
+      case 'EXECUTE_NAVY_ATTACK':
+        return this._handleExecuteNavyAttack(player, command, players);
+      case 'BUY_SHIELD':
+        return this._handleBuyShield(player, players);
+      case 'PREPARE_SHIELD':
+        return this._handlePrepareShield(player, players);
+      case 'APPLY_SHIELD':
+        return this._handleApplyShield(player, command, players);
+      case 'DISCARD_RESOURCES':
+        return this._handleDiscardResources(player, command, players);
       default:
         return { success: false, error: 'Unknown command' };
     }
@@ -302,52 +312,141 @@ class GameEngine {
     return { success: true };
   }
 
-  _handleBuyNavyAttack(player, players) {
+  _handleBuyNavy(player, command, players) {
     if (this.currentPhase !== 'GAMEPLAY') return { success: false, error: 'Not in build phase' };
 
-    if (!player.canAfford(COSTS.navy_attack)) return { success: false, error: 'Cannot afford navy attack' };
+    if (!player.canAfford(COSTS.navy_attack)) return { success: false, error: 'Cannot afford navy' };
+
+    const option = command.option; // 'ARMY' or 'ATTACK'
+    if (!['ARMY', 'ATTACK'].includes(option)) return { success: false, error: 'Invalid navy option' };
+
+    if (option === 'ATTACK') {
+      const validTargets = this.grid.getValidNavyTargets(player.id);
+      if (validTargets.length === 0) {
+        return { success: false, error: 'Vurulacak rakip gemisi bulunmuyor!' };
+      }
+    }
 
     player.spendCost(COSTS.navy_attack);
-    player.knightsPlayed++;
-    this.events.push({ type: 'NAVY_ATTACK_BOUGHT', playerId: player.id });
+
+    if (option === 'ARMY') {
+      player.knightsPlayed++;
+      this.events.push({ type: 'NAVY_BOUGHT_ARMY', playerId: player.id });
+      this._updateLargestArmy(players);
+      this._checkVictory(player, players);
+      this._broadcastState(players);
+      return { success: true };
+    } else if (option === 'ATTACK') {
+      this.events.push({ type: 'NAVY_BOUGHT_ATTACK', playerId: player.id });
+      this.currentPhase = 'NAVY_TARGETING';
+      this._broadcastState(players);
+      return { success: true };
+    }
+  }
+
+  _handleExecuteNavyAttack(player, command, players) {
+    if (this.currentPhase !== 'NAVY_TARGETING') return { success: false, error: 'Not in navy targeting phase' };
+
+    const edgeId = command.edgeId;
+    if (!edgeId) return { success: false, error: 'No target specified' };
+
+    const validTargets = this.grid.getValidNavyTargets(player.id);
+    if (!validTargets.includes(edgeId)) {
+      return { success: false, error: 'Geçersiz hedef!' };
+    }
+
+    // CHECK FOR SHIELDS BEFORE DESTROYING
+    let blockedByShield = false;
+    const edge = this.grid.edges.get(edgeId);
+    const victimId = edge.road.playerId;
+    const victimPlayer = players.find(p => p.id === victimId);
     
-    this._updateLargestArmy(players);
+    if (victimPlayer) {
+      const adjacentHexes = this.grid.getHexesForEdge(edgeId);
+      for (const hex of adjacentHexes) {
+        const hKey = HexGrid.key(hex.q, hex.r);
+        const shieldIndex = victimPlayer.activeShields.indexOf(hKey);
+        if (shieldIndex !== -1) {
+          // Shield found! Block attack and consume shield.
+          victimPlayer.activeShields.splice(shieldIndex, 1);
+          blockedByShield = true;
+          break;
+        }
+      }
+    }
+
+    if (blockedByShield) {
+      this.events.push({ type: 'SHIELD_BLOCKED_ATTACK', playerId: player.id, edgeId });
+      this.currentPhase = 'GAMEPLAY';
+      this.broadcast('shield_blocked', { edgeId });
+      this._broadcastState(players);
+      return { success: true };
+    }
+
+    const success = this.grid.destroyRoad(edgeId);
+    if (!success) return { success: false, error: 'Hedef yıkılamadı' };
+
+    // Find the victim
+    for (const p of players) {
+      const idx = p.roads.indexOf(edgeId);
+      if (idx !== -1) {
+        p.roads.splice(idx, 1);
+        break;
+      }
+    }
+
+    this.events.push({ type: 'NAVY_ATTACK_EXECUTED', playerId: player.id, edgeId });
+
+    this._updateLongestRoad(players);
     this._checkVictory(player, players);
 
-    // Change phase to robber so the player can place the Navy (Robber)
-    this.currentPhase = 'ROBBER';
+    this.currentPhase = 'GAMEPLAY';
+    this.broadcast('road_destroyed', { edgeId });
     this._broadcastState(players);
     return { success: true };
   }
 
-  _handleBuyDevCard(player, players) {
+  _handleBuyShield(player, players) {
     if (this.currentPhase !== 'GAMEPLAY') return { success: false, error: 'Not in build phase' };
 
-    if (!player.canAfford(COSTS.dev_card)) return { success: false, error: 'Cannot afford dev card' };
+    if (!player.canAfford(COSTS.shield)) return { success: false, error: 'Cannot afford shield' };
 
-    player.spendCost(COSTS.dev_card);
+    player.spendCost(COSTS.shield);
     
-    // 33% chance for VP, 67% chance for 2 random resources (Year of Plenty)
-    const rand = Math.random();
-    if (rand < 0.33) {
-      player.devCardsVp++;
-      this.events.push({ type: 'DEV_CARD_BOUGHT', playerId: player.id, card: 'Victory Point' });
-    } else {
-      const r1 = RESOURCE_TYPES[Math.floor(Math.random() * RESOURCE_TYPES.length)];
-      const r2 = RESOURCE_TYPES[Math.floor(Math.random() * RESOURCE_TYPES.length)];
-      player.addResource(r1, 1);
-      player.addResource(r2, 1);
-      this.events.push({ type: 'DEV_CARD_BOUGHT', playerId: player.id, card: 'Year of Plenty' });
-      this.broadcast('resources_updated', {
-        playerId: player.id,
-        login: player.login,
-        playerResources: player.resources,
-        gained: [{ type: r1, amount: 1 }, { type: r2, amount: 1 }],
-        reason: 'dev_card'
-      });
+    player.unplayedShields++;
+    this.events.push({ type: 'SHIELD_BOUGHT', playerId: player.id });
+    
+    this._broadcastState(players);
+    return { success: true };
+  }
+
+  _handlePrepareShield(player, players) {
+    if (this.currentPhase !== 'GAMEPLAY') return { success: false, error: 'Not in gameplay phase' };
+    if (player.unplayedShields <= 0) return { success: false, error: 'No unplayed shields' };
+
+    this.currentPhase = 'SHIELD_TARGETING';
+    this._broadcastState(players);
+    return { success: true };
+  }
+
+  _handleApplyShield(player, command, players) {
+    if (this.currentPhase !== 'SHIELD_TARGETING') return { success: false, error: 'Not in shield targeting phase' };
+    
+    if (player.unplayedShields <= 0) return { success: false, error: 'No unplayed shields' };
+
+    const hexKey = command.hexKey;
+    if (!hexKey) return { success: false, error: 'No target specified' };
+
+    const validTargets = this.grid.getValidShieldTargets(player.id);
+    if (!validTargets.includes(hexKey)) {
+      return { success: false, error: 'Geçersiz ada hedefine kalkan konulamaz!' };
     }
 
-    this._checkVictory(player, players);
+    player.unplayedShields--;
+    player.activeShields.push(hexKey);
+
+    this.events.push({ type: 'SHIELD_APPLIED', playerId: player.id });
+    this.currentPhase = 'GAMEPLAY';
     this._broadcastState(players);
     return { success: true };
   }
@@ -370,28 +469,29 @@ class GameEngine {
     this.events.push({ type: 'DICE_ROLLED', dice: [die1, die2], total });
 
     if (total === 7) {
-      // Robber! Players with > 7 resources must discard half (auto for now)
+      // Robber! Check if anyone needs to discard
+      this.discardState = {};
+      let needsDiscard = false;
+      
       for (const p of players) {
         const totalRes = p.getTotalResources();
         if (totalRes > 7) {
-          const toDiscard = Math.floor(totalRes / 2);
-          let discarded = 0;
-          while (discarded < toDiscard) {
-            for (const type of RESOURCE_TYPES) {
-              if (p.resources[type] > 0 && discarded < toDiscard) {
-                p.resources[type]--;
-                discarded++;
-              }
-            }
-          }
+          this.discardState[p.id] = Math.floor(totalRes / 2);
+          needsDiscard = true;
         }
       }
 
-      // Move to robber phase
-      this.currentPhase = 'ROBBER';
       this.broadcast('dice_rolled', { dice1: die1, dice2: die2, total, currentTurn: this.turnOrder[this.currentTurn] });
-      this._broadcastState(players);
-      this.broadcast('game:dice', { dice: [die1, die2], total, phase: 'ROBBER' });
+      
+      if (needsDiscard) {
+        this.currentPhase = 'DISCARD';
+        this.broadcast('game:dice', { dice: [die1, die2], total, phase: 'DISCARD' });
+        this._broadcastState(players);
+      } else {
+        this.currentPhase = 'ROBBER';
+        this.broadcast('game:dice', { dice: [die1, die2], total, phase: 'ROBBER' });
+        this._broadcastState(players);
+      }
       return;
     }
 
@@ -423,7 +523,61 @@ class GameEngine {
     this.broadcast('game:dice', { dice: [die1, die2], total, distributions, phase: 'GAMEPLAY' });
   }
 
-  // ─── ROBBER ────────────────────────────────────────────────
+  // ─── ROBBER & DISCARD ──────────────────────────────────────
+
+  _handleDiscardResources(player, command, players) {
+    if (this.currentPhase !== 'DISCARD') return { success: false, error: 'Not in discard phase' };
+    
+    const amountNeeded = this.discardState[player.id];
+    if (!amountNeeded) return { success: false, error: 'You do not need to discard resources' };
+
+    const toDiscard = command.resources; // e.g. { wood: 1, gold: 2 }
+    if (!toDiscard || typeof toDiscard !== 'object') return { success: false, error: 'Invalid discard payload' };
+
+    let totalDiscarding = 0;
+    for (const type of RESOURCE_TYPES) {
+      const count = toDiscard[type] || 0;
+      if (count > 0) {
+        if (player.resources[type] < count) {
+          return { success: false, error: `Not enough ${type} to discard` };
+        }
+        totalDiscarding += count;
+      }
+    }
+
+    if (totalDiscarding !== amountNeeded) {
+      return { success: false, error: `You must discard exactly ${amountNeeded} resources, but selected ${totalDiscarding}` };
+    }
+
+    // Apply discarding
+    for (const type of RESOURCE_TYPES) {
+      const count = toDiscard[type] || 0;
+      if (count > 0) {
+        player.resources[type] -= count;
+      }
+    }
+
+    // Remove player from discard state
+    delete this.discardState[player.id];
+
+    this.events.push({ type: 'RESOURCES_DISCARDED', playerId: player.id, amount: totalDiscarding });
+    
+    this.broadcast('chat_message', {
+      login: 'Sistem',
+      coalitionColor: '#94a3b8',
+      text: `${player.login}, ${totalDiscarding} kaynak feda etti.`,
+      timestamp: Date.now()
+    });
+
+    // Check if everyone is done
+    if (Object.keys(this.discardState).length === 0) {
+      this.currentPhase = 'ROBBER';
+      this.broadcast('game:phaseStart', { phase: 'ROBBER' });
+    }
+
+    this._broadcastState(players);
+    return { success: true };
+  }
 
   _handleMoveRobber(player, command, players) {
     if (this.currentPhase !== 'ROBBER') return { success: false, error: 'Not in robber phase' };
@@ -531,6 +685,8 @@ class GameEngine {
 
   _updateLongestRoad(players) {
     // Simple approximation: player with most roads >= 5
+    this.longestRoadLength = 4;
+    this.longestRoadPlayerId = null;
     for (const p of players) {
       if (p.roads.length > this.longestRoadLength) {
         this.longestRoadLength = p.roads.length;
@@ -600,6 +756,18 @@ class GameEngine {
     // Ensure VPs are up to date before broadcast
     players.forEach(p => p.calculateVP(this.longestRoadPlayerId, this.largestArmyPlayerId));
     this.broadcast('game:stateUpdate', this.getFullState(players));
+
+    // Send private state to each player
+    if (this.sendToPlayer) {
+      for (const p of players) {
+        if (p.isConnected && p.socketId) {
+          this.sendToPlayer(p.socketId, 'game:privateState', {
+            activeShields: p.activeShields || []
+          });
+        }
+      }
+    }
+
     this.checkBotTurn();
   }
 
@@ -627,6 +795,9 @@ class GameEngine {
       costs: COSTS,
       validEdges: this.grid.getValidEdgesForPlayer(currentPlayerId),
       validNodes: this.grid.getValidNodesForPlayer(currentPlayerId, requireRoad),
+      validNavyTargets: this.currentPhase === 'NAVY_TARGETING' ? this.grid.getValidNavyTargets(currentPlayerId) : [],
+      validShieldTargets: this.currentPhase === 'SHIELD_TARGETING' ? this.grid.getValidShieldTargets(currentPlayerId) : [],
+      discardState: this.discardState,
     };
   }
 

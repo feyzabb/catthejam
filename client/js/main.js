@@ -10,6 +10,7 @@ const state = {
   selectedAction: null,
   socket: null,
   myPlayerIndex: -1,
+  privateShields: [], // array of hexKeys
 };
 
 // ─── RESOURCE CONSTANTS ────────────────────────────────────────
@@ -129,6 +130,57 @@ function connectSocket() {
     updateUIControls(gs);
   });
 
+  s.on('game:privateState', (data) => {
+    if (data && data.activeShields) {
+      state.privateShields = data.activeShields;
+      if (state.gameState) renderGameState(state.gameState);
+    }
+  });
+
+  s.on('shield_blocked', (data) => {
+    addEventLog(`🛡️ Kalkan, saldırıyı engelledi!`);
+    
+    // Create a visual popup animation
+    const popup = document.createElement('div');
+    popup.innerHTML = `
+      <div style="position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); 
+                  background:rgba(15, 23, 42, 0.95); color:#fff; padding:40px; border-radius:16px;
+                  border: 3px solid #38bdf8; text-align:center; z-index:10000;
+                  box-shadow: 0 0 50px rgba(56, 189, 248, 0.6), inset 0 0 20px rgba(56, 189, 248, 0.4);
+                  animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+        <div style="font-size:72px; margin-bottom:15px; text-shadow: 0 0 20px rgba(255,255,255,0.5);">🛡️💥</div>
+        <h2 style="color:#38bdf8; margin:0 0 15px 0; font-family:'Outfit',sans-serif; font-size:32px; letter-spacing:1px; text-transform:uppercase;">Saldırı Savuşturuldu!</h2>
+        <p style="font-size:18px; margin:0; color:#cbd5e1; line-height:1.5;">Hedef gemi kalkan ile korunuyormuş.<br>Kalkan kırıldı ve saldırı boşa gitti!</p>
+      </div>
+    `;
+    
+    // Add keyframes if not exists
+    if (!document.getElementById('shield-keyframes')) {
+      const style = document.createElement('style');
+      style.id = 'shield-keyframes';
+      style.textContent = `
+        @keyframes popIn {
+          0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+          100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    document.body.appendChild(popup);
+    
+    // Auto remove
+    setTimeout(() => {
+      const inner = popup.firstElementChild;
+      if (inner) {
+        inner.style.transition = 'all 0.5s ease';
+        inner.style.opacity = '0';
+        inner.style.transform = 'translate(-50%, -50%) scale(0.8)';
+      }
+      setTimeout(() => popup.remove(), 500);
+    }, 4000);
+  });
+
   s.on('game:phaseStart', (data) => {
     addEventLog(`Phase: ${data.phase.toUpperCase()}`);
   });
@@ -189,8 +241,35 @@ function connectSocket() {
       d1.classList.remove('rolling'); d2.classList.remove('rolling');
       d1.textContent = data.dice[0]; d2.textContent = data.dice[1];
       $('#dice-total').textContent = `Total: ${data.total}`;
+      
+      // Lightning effect for 7
+      if (data.total === 7) {
+        addEventLog(`⚡ Fırtına koptu! Hırsız geliyor...`);
+        const lightning = document.createElement('div');
+        lightning.style.position = 'fixed';
+        lightning.style.top = '0'; lightning.style.left = '0';
+        lightning.style.width = '100vw'; lightning.style.height = '100vh';
+        lightning.style.background = '#fff';
+        lightning.style.opacity = '0';
+        lightning.style.zIndex = '9999';
+        lightning.style.pointerEvents = 'none';
+        lightning.style.transition = 'opacity 0.1s ease';
+        document.body.appendChild(lightning);
+        
+        // Flashes
+        setTimeout(() => lightning.style.opacity = '0.8', 100);
+        setTimeout(() => lightning.style.opacity = '0', 200);
+        setTimeout(() => lightning.style.opacity = '0.6', 400);
+        setTimeout(() => lightning.style.opacity = '0', 500);
+        setTimeout(() => lightning.style.opacity = '0.9', 700);
+        setTimeout(() => lightning.remove(), 900);
+      }
     }, 500);
-    addEventLog(`🎲 Rolled a ${data.total}!`);
+    
+    if (data.total !== 7) {
+      addEventLog(`🎲 Rolled a ${data.total}!`);
+    }
+    
     setTimeout(() => overlay.classList.add('hidden'), 3500);
   });
 
@@ -422,10 +501,23 @@ function initGameCanvas() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // keep logical coords unchanged
   }
 
+  // Helper: re-center camera to canvas center (called on init and resize)
+  function recenterCamera() {
+    const cW = canvas.clientWidth;
+    const cH = canvas.clientHeight;
+    // Preserve zoom but always lock position to center
+    if (camera) {
+      camera.x = cW / 2;
+      camera.y = cH / 2;
+    } else {
+      camera = { x: cW / 2, y: cH / 2, zoom: 1.0 };
+    }
+  }
+
   // Delay to let flex layout settle
   requestAnimationFrame(() => {
     resizeCanvas();
-    camera = { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2.5, zoom: 1.0 };
+    recenterCamera();
     
     // Start continuous animation loop for dynamic water
     if (state.animationId) cancelAnimationFrame(state.animationId);
@@ -438,31 +530,67 @@ function initGameCanvas() {
     state.animationId = requestAnimationFrame(loop);
   });
 
-  let dragging = false, lastX, lastY;
-  canvas.addEventListener('mousedown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
+  let dragging = false, isPan = false, lastX, lastY;
+  
+  canvas.addEventListener('mousedown', (e) => { 
+    dragging = true; 
+    isPan = false; 
+    lastX = e.clientX; 
+    lastY = e.clientY; 
+  });
+  
   canvas.addEventListener('mousemove', (e) => {
     if (!dragging) return;
+    
+    // Yalnızca belirgin bir hareket varsa kaydırma (pan) olarak işaretle
+    if (Math.abs(e.clientX - lastX) > 2 || Math.abs(e.clientY - lastY) > 2) {
+      isPan = true;
+    }
+    
     camera.x += e.clientX - lastX;
     camera.y += e.clientY - lastY;
-    lastX = e.clientX; lastY = e.clientY;
-    // Clamp pan so map never drifts too far off screen
+    lastX = e.clientX;
+    lastY = e.clientY;
+    
+    // Haritanın tamamen ekran dışına kaymasını engelle
     const cW = canvas.clientWidth;
     const cH = canvas.clientHeight;
-    camera.x = Math.max(-cW * 0.4, Math.min(cW * 1.4, camera.x));
-    camera.y = Math.max(-cH * 0.4, Math.min(cH * 1.4, camera.y));
+    camera.x = Math.max(-cW * 1.5, Math.min(cW * 1.5, camera.x));
+    camera.y = Math.max(-cH * 1.5, Math.min(cH * 1.5, camera.y));
+    
     if (state.gameState) renderGameState(state.gameState);
   });
-  canvas.addEventListener('mouseup', () => dragging = false);
+  
+  canvas.addEventListener('mouseup', () => {
+    dragging = false;
+    // Tıklamaların heemen çalışabilmesi için ufak bir gecikme
+    setTimeout(() => { isPan = false; }, 50);
+  });
   canvas.addEventListener('mouseleave', () => dragging = false);
 
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
-    camera.zoom = Math.max(0.5, Math.min(2.5, camera.zoom - e.deltaY * 0.001));
+    const r = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - r.left;
+    const mouseY = e.clientY - r.top;
+
+    // Convert mouse physical position to world coordinates before zoom
+    const worldX = (mouseX - camera.x) / camera.zoom;
+    const worldY = (mouseY - camera.y) / camera.zoom;
+
+    // Calculate new zoom level
+    const newZoom = Math.max(0.5, Math.min(2.5, camera.zoom - e.deltaY * 0.001));
+
+    // Update camera position so the world coordinate under the mouse stays exactly where it is
+    camera.x = mouseX - worldX * newZoom;
+    camera.y = mouseY - worldY * newZoom;
+    camera.zoom = newZoom;
+
     if (state.gameState) renderGameState(state.gameState);
   });
 
   canvas.addEventListener('click', (e) => {
-    if (dragging) return;
+    if (isPan) return; // Sürükleme yapıldıysa tıklamayı iptal et
     const r = canvas.getBoundingClientRect();
     const px = (e.clientX - r.left - camera.x) / camera.zoom;
     const py = (e.clientY - r.top - camera.y) / camera.zoom;
@@ -471,6 +599,7 @@ function initGameCanvas() {
 
   window.addEventListener('resize', () => {
     resizeCanvas();
+    recenterCamera(); // keep islands centered on resize too
     if (state.gameState) renderGameState(state.gameState);
   });
 }
@@ -598,6 +727,33 @@ function renderGameState(gs) {
     }
   }
 
+  // 1.5 Draw active private shields (Only owner sees them)
+  if (state.privateShields && state.privateShields.length > 0) {
+    ctx.save();
+    for (const hKey of state.privateShields) {
+      const [qStr, rStr] = hKey.split(',');
+      const q = parseInt(qStr, 10);
+      const r = parseInt(rStr, 10);
+      const { x, y } = getHexPixel(q, r);
+
+      // Draw blue shield overlay on the hex
+      ctx.beginPath();
+      ctx.arc(x, y, HEX_SIZE * 0.7, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.25)'; // Light blue
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.8)';
+      ctx.stroke();
+
+      // Shield icon in the center
+      ctx.font = '30px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🔰', x, y + 15);
+    }
+    ctx.restore();
+  }
+
   // 2. Draw Edges (Merchant Ships)
   for (const edge of gs.grid.edges) {
     if (edge.road) {
@@ -710,14 +866,30 @@ function renderGameState(gs) {
     ctx.shadowBlur = 0;
   }
 
-  if (action === 'NAVY_ATTACK' || gs.phase === 'ROBBER') {
-    ctx.fillStyle = 'rgba(239, 68, 68, 0.4)'; // Red glow over hexes
+  if (action === 'NAVY_ATTACK' || gs.phase === 'ROBBER' || gs.phase === 'SHIELD_TARGETING') {
+    const isShieldTargeting = gs.phase === 'SHIELD_TARGETING';
+    const validShieldSet = new Set(gs.validShieldTargets || []);
+    
     for (const hex of gs.grid.hexes) {
-      if (!hex.hasRobber) {
-        const { x, y } = getHexPixel(hex.q, hex.r);
-        ctx.beginPath();
-        ctx.arc(x, y, HEX_SIZE * 0.8, 0, Math.PI*2);
-        ctx.fill();
+      const hexKey = `${hex.q},${hex.r}`;
+      
+      if (isShieldTargeting) {
+        if (validShieldSet.has(hexKey)) {
+          ctx.fillStyle = 'rgba(56, 189, 248, 0.4)'; // Blue glow for valid shield target
+          const { x, y } = getHexPixel(hex.q, hex.r);
+          ctx.beginPath();
+          ctx.arc(x, y, HEX_SIZE * 0.8, 0, Math.PI*2);
+          ctx.fill();
+        }
+      } else {
+        // Red glow for Robber or Navy
+        if (!hex.hasRobber) {
+          ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
+          const { x, y } = getHexPixel(hex.q, hex.r);
+          ctx.beginPath();
+          ctx.arc(x, y, HEX_SIZE * 0.8, 0, Math.PI*2);
+          ctx.fill();
+        }
       }
     }
   }
@@ -737,7 +909,7 @@ function getHexPixel(q, r) {
 // ─── CLICK HANDLING ────────────────────────────────────────
 function handleCanvasClick(px, py) {
   if (!state.gameState) return;
-  if (!state.selectedAction && state.gameState.phase !== 'ROBBER') return;
+  if (!state.selectedAction && state.gameState.phase !== 'ROBBER' && state.gameState.phase !== 'SHIELD_TARGETING') return;
 
   // Find nearest vertex (for villages/cities)
   let nearestVertex = null;
@@ -793,6 +965,13 @@ function handleCanvasClick(px, py) {
   else if (state.gameState.phase === 'ROBBER' && nearestHex) {
     state.socket.emit('game:command', { type: 'MOVE_ROBBER', q: nearestHex.q, r: nearestHex.r });
   }
+  else if (state.gameState.phase === 'SHIELD_TARGETING' && nearestHex) {
+    const hexKey = `${nearestHex.q},${nearestHex.r}`;
+    const validShieldSet = new Set(state.gameState.validShieldTargets || []);
+    if (validShieldSet.has(hexKey)) {
+      state.socket.emit('game:command', { type: 'APPLY_SHIELD', hexKey });
+    }
+  }
 
   // Deselect after click
   state.selectedAction = null;
@@ -830,9 +1009,12 @@ function updateHUD(gs) {
     const isLongestRoad = p.id === gs.longestRoadPlayerId;
     const isLargestArmy = p.id === gs.largestArmyPlayerId;
     const totalCards = Object.values(p.resources).reduce((a,b) => a+b, 0);
+    const armyText = p.knightsPlayed > 0 ? ` <span style="color:var(--accent-cyan); font-size:0.85rem;" title="Donanma Gücü">⚔️x${p.knightsPlayed}</span>` : '';
+    const shieldText = p.unplayedShields > 0 ? ` <span style="color:var(--accent-green); font-size:0.85rem;" title="Aktif Kalkan (Envanterde)">🔰x${p.unplayedShields}</span>` : '';
+    
     return `<div class="hud-player ${isActive ? 'active-turn' : ''}" style="border-color:${p.color}">
-      <span class="p-name">${p.login}</span>
-      <span class="p-vp">⭐${p.victoryPoints}${isLongestRoad ? ' 🛤️' : ''}${isLargestArmy ? ' ⚔️' : ''}</span>
+      <span class="p-name">${p.login}${armyText}${shieldText}</span>
+      <span class="p-vp">⭐${p.victoryPoints}${isLongestRoad ? ' 🛤️' : ''}${isLargestArmy ? ' 🏆' : ''}</span>
       <span class="p-cards">🃏${totalCards}</span>
     </div>`;
   }).join('');
@@ -871,6 +1053,8 @@ function renderDOMSlots(gs) {
   // Use server-provided valid slot lists
   const validNodeSet = new Set(gs.validNodes || []);
   const validEdgeSet = new Set(gs.validEdges || []);
+  const validNavySet = new Set(gs.validNavyTargets || []);
+  const isNavyTargeting = gs.phase === 'NAVY_TARGETING';
 
   // Vertices (Nodes)
   for (const v of gs.grid.vertices) {
@@ -920,6 +1104,8 @@ function renderDOMSlots(gs) {
         const curSetup = curGs && curGs.phase === 'SETUP';
         if (state.selectedAction === 'BUILD_SHIP' || (curSetup && curGs.setupStep === 'road')) {
           state.socket.emit('build_road', { edgeId: e.id });
+        } else if (curGs && curGs.phase === 'NAVY_TARGETING') {
+          state.socket.emit('game:command', { type: 'EXECUTE_NAVY_ATTACK', edgeId: e.id });
         }
       });
       container.appendChild(slot);
@@ -938,11 +1124,17 @@ function renderDOMSlots(gs) {
     slot.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
     
     if (e.road) {
-      slot.classList.add('built');
-      slot.classList.remove('visible');
-      slot.style.pointerEvents = 'none';
+      if (isMyTurn && isNavyTargeting && validNavySet.has(e.id)) {
+        slot.classList.remove('built');
+        slot.classList.add('visible', 'navy-target');
+        slot.style.pointerEvents = 'auto';
+      } else {
+        slot.classList.add('built');
+        slot.classList.remove('visible', 'navy-target');
+        slot.style.pointerEvents = 'none';
+      }
     } else {
-      slot.classList.remove('built');
+      slot.classList.remove('built', 'navy-target');
       const isValid = isMyTurn && showEdges && validEdgeSet.has(e.id);
       slot.classList.toggle('visible', isValid);
       slot.style.pointerEvents = isValid ? 'auto' : 'none';
@@ -986,12 +1178,66 @@ function updateUIControls(gs) {
   if (gs.phase === 'ROLL') {
     rollBtn.classList.remove('hidden');
     endBtn.classList.add('hidden');
-  } else if (gs.phase === 'GAMEPLAY' || gs.phase === 'SETUP' || gs.phase === 'ROBBER') {
+  } else if (gs.phase === 'DISCARD') {
+    rollBtn.classList.add('hidden');
+    endBtn.classList.add('hidden');
+    allBtns.forEach(b => b.classList.add('disabled'));
+
+    if (gs.discardState && gs.discardState[state.user.id]) {
+      // Show discard modal for me
+      const required = gs.discardState[state.user.id];
+      $('#discard-target-text').textContent = `Atman Gereken: ${required}`;
+      $('#discard-required').textContent = required;
+      $('#modal-discard').classList.remove('hidden');
+      updateDiscardModal();
+    } else {
+      $('#modal-discard').classList.add('hidden');
+    }
+  } else if (gs.phase === 'GAMEPLAY' || gs.phase === 'SETUP' || gs.phase === 'ROBBER' || gs.phase === 'NAVY_TARGETING' || gs.phase === 'SHIELD_TARGETING') {
     rollBtn.classList.add('hidden');
     endBtn.classList.remove('hidden');
   } else {
     rollBtn.classList.add('hidden');
     endBtn.classList.add('hidden');
+  }
+}
+
+// ─── DISCARD LOGIC ──────────────────────────────────────────
+function updateDiscardModal() {
+  if (!state.gameState || !state.user) return;
+  const myPlayer = state.gameState.players.find(p => p.id === state.user.id);
+  if (!myPlayer) return;
+
+  const required = state.gameState.discardState?.[state.user.id] || 0;
+  let selected = 0;
+
+  $('#discard-picker').querySelectorAll('.trade-res-row').forEach(row => {
+    const type = row.dataset.res;
+    const owned = myPlayer.resources[type] || 0;
+    const countEl = row.querySelector('.res-count');
+    const ownedEl = row.querySelector('.res-owned');
+    let count = parseInt(countEl.textContent) || 0;
+
+    // Ensure count doesn't exceed owned
+    if (count > owned) count = owned;
+    countEl.textContent = count;
+    ownedEl.textContent = owned;
+
+    selected += count;
+
+    // Update buttons
+    row.querySelector('.res-minus').disabled = (count <= 0);
+    // Cannot add more than owned, and cannot add if we reached target
+    row.querySelector('.res-plus').disabled = (count >= owned) || (selected >= required);
+  });
+
+  $('#discard-selected').textContent = selected;
+  const confirmBtn = $('#btn-discard-confirm');
+  
+  if (selected === required && required > 0) {
+    confirmBtn.classList.remove('disabled');
+  } else {
+    confirmBtn.classList.add('disabled');
   }
 }
 
@@ -1014,7 +1260,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'btn-build-village': 'BUILD_VILLAGE',
     'btn-upgrade-city': 'UPGRADE_CITY',
     'btn-navy-attack': 'NAVY_ATTACK',
-    'btn-buy-devcard': 'BUY_DEV_CARD',
+    'btn-buy-shield': 'BUY_SHIELD',
   };
 
   Object.entries(actionBtns).forEach(([btnId, action]) => {
@@ -1024,14 +1270,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.gameState?.currentPlayerId !== state.user.id) return;
         $$('.action-btn').forEach(b => b.classList.remove('active'));
         
-        if (action === 'BUY_DEV_CARD') {
-          state.socket.emit('game:command', { type: 'BUY_DEV_CARD' });
+        if (action === 'BUY_SHIELD') {
+          $('#modal-shield-choice').classList.remove('hidden');
           state.selectedAction = null;
           return;
         }
         
         if (action === 'NAVY_ATTACK') {
-          state.socket.emit('game:command', { type: 'BUY_NAVY_ATTACK' });
+          $('#modal-navy-choice').classList.remove('hidden');
           state.selectedAction = null;
           return;
         }
@@ -1315,7 +1561,123 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     $('#trade-offer-popup').classList.add('hidden');
   });
+
+  $('#btn-back-lobby')?.addEventListener('click', () => {
+    $('#modal-game-over').classList.add('hidden');
+    state.gameState = null;
+    state.socket.emit('leave_room');
+    showScreen('lobby');
+  });
+
+  // ─── NAVY MODAL ACTIONS ──────────────────────────────────
+  $('#btn-navy-modal-army')?.addEventListener('click', () => {
+    state.socket.emit('game:command', { type: 'BUY_NAVY', option: 'ARMY' });
+    $('#modal-navy-choice').classList.add('hidden');
+  });
+
+  $('#btn-navy-modal-attack')?.addEventListener('click', () => {
+    state.socket.emit('game:command', { type: 'BUY_NAVY', option: 'ATTACK' });
+    $('#modal-navy-choice').classList.add('hidden');
+  });
+
+  $('#btn-navy-cancel')?.addEventListener('click', () => {
+    $('#modal-navy-choice').classList.add('hidden');
+  });
+
+  // ─── SHIELD MODAL ACTIONS ────────────────────────────────
+  $('#btn-shield-buy')?.addEventListener('click', () => {
+    state.socket.emit('game:command', { type: 'BUY_SHIELD' });
+    $('#modal-shield-choice').classList.add('hidden');
+  });
+
+  $('#btn-shield-apply')?.addEventListener('click', () => {
+    state.socket.emit('game:command', { type: 'PREPARE_SHIELD' });
+    $('#modal-shield-choice').classList.add('hidden');
+  });
+
+  $('#btn-shield-cancel')?.addEventListener('click', () => {
+    $('#modal-shield-choice').classList.add('hidden');
+  });
+
+  // ─── DISCARD MODAL ACTIONS ────────────────────────────────
+  $('#discard-picker')?.querySelectorAll('.res-minus').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const countEl = e.target.nextElementSibling;
+      let count = parseInt(countEl.textContent) || 0;
+      if (count > 0) {
+        countEl.textContent = count - 1;
+        updateDiscardModal();
+      }
+    });
+  });
+
+  $('#discard-picker')?.querySelectorAll('.res-plus').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const countEl = e.target.previousElementSibling;
+      let count = parseInt(countEl.textContent) || 0;
+      countEl.textContent = count + 1;
+      updateDiscardModal();
+    });
+  });
+
+  $('#btn-discard-confirm')?.addEventListener('click', () => {
+    if ($('#btn-discard-confirm').classList.contains('disabled')) return;
+
+    const resources = {};
+    $('#discard-picker').querySelectorAll('.trade-res-row').forEach(row => {
+      const type = row.dataset.res;
+      const count = parseInt(row.querySelector('.res-count').textContent) || 0;
+      if (count > 0) resources[type] = count;
+    });
+
+    state.socket.emit('game:command', { type: 'DISCARD_RESOURCES', resources });
+    $('#modal-discard').classList.add('hidden');
+    
+    // Reset counters
+    $('#discard-picker').querySelectorAll('.res-count').forEach(el => el.textContent = '0');
+  });
 });
+
+function showGameOverModal(placements) {
+  const modal = $('#modal-game-over');
+  const resultsList = $('#results-list');
+  const title = modal.querySelector('h3');
+  
+  if (!modal || !resultsList) return;
+
+  resultsList.innerHTML = '';
+  
+  // Kendi sonucunu bularak başlığı ayarla
+  const myResult = placements.find(p => p.playerId === state.user?.id);
+  if (myResult && myResult.placement === 1) {
+    title.innerHTML = '🏆 Tebrikler, Kazandın!';
+    title.style.color = 'var(--accent-green)';
+  } else {
+    title.innerHTML = '💀 Maalesef Kaybettin';
+    title.style.color = 'var(--accent-red)';
+  }
+
+  placements.forEach((p) => {
+    const isMe = p.playerId === state.user?.id;
+    const row = document.createElement('div');
+    row.className = 'result-row';
+    if (isMe) row.style.border = '1px solid var(--accent-cyan)';
+    
+    // ELO değişimi
+    const pts = p.pointsChange > 0 ? `+${p.pointsChange}` : p.pointsChange;
+    const ptsClass = p.pointsChange > 0 ? 'positive' : (p.pointsChange < 0 ? 'negative' : '');
+    
+    row.innerHTML = `
+      <div class="result-placement">#${p.placement}</div>
+      <div class="result-name">${escapeHtml(p.displayName || p.login)} ${isMe ? '(Sen)' : ''}</div>
+      <div class="result-score">${p.score} Yıldız</div>
+      <div class="result-points ${ptsClass}">${pts} ELO</div>
+    `;
+    resultsList.appendChild(row);
+  });
+
+  modal.classList.remove('hidden');
+}
 
 function escapeHtml(str) {
   const div = document.createElement('div');

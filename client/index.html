@@ -207,11 +207,11 @@
 
       <!-- Player Cards (Right) -->
       <div class="hud-players" id="hud-players"></div>
-    </div>
-
-    <!-- Turn Timer Bar -->
-    <div class="turn-timer" id="turn-timer">
-      <div class="turn-timer-bar" id="turn-timer-bar" style="width:100%"></div>
+      
+      <!-- Turn Timer Bar (Now attached to the bottom of the HUD) -->
+      <div class="turn-timer" id="turn-timer">
+        <div class="turn-timer-bar" id="turn-timer-bar" style="width:100%"></div>
+      </div>
     </div>
 
     <!-- Canvas Wrapper -->
@@ -252,9 +252,9 @@
           <span class="action-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/destroy_icon.png" alt="Navy"></span>
           <span><span class="action-label">Donanma</span><br><span class="action-cost">1⛏️ 1🍞 1🪙</span></span>
         </button>
-        <button class="action-btn" id="btn-buy-devcard" title="1 Iron + 1 Food + 1 Gold">
-          <span class="action-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/victory_points_icon_large.png" alt="DevCard"></span>
-          <span><span class="action-label">Gelişim Kartı</span><br><span class="action-cost">1⛏️ 1🍞 1🪙</span></span>
+        <button class="action-btn" id="btn-buy-shield" title="3 Iron + 3 Gold">
+          <span class="action-icon" style="font-size:24px; line-height:24px;">🔰</span>
+          <span><span class="action-label">Kalkan</span><br><span class="action-cost">3⛏️ 3🪙</span></span>
         </button>
         <button class="action-btn end-turn" id="btn-end-turn">
           <span class="action-icon"><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/command_confirm_icon.png" alt="End"></span>
@@ -394,6 +394,44 @@
     </div>
   </div>
 
+  <!-- Discard Resources Modal -->
+  <div class="modal-overlay hidden" id="modal-discard">
+    <div class="modal-card" style="max-width: 320px;">
+      <h3 style="color:var(--accent-red); margin-bottom: 8px;">⚡ Hırsız Saldırısı!</h3>
+      <p id="discard-instruction" style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px; text-align:center;">
+        Zar 7 geldi ve elinde 7'den fazla kaynak var!
+        <br><strong style="color:var(--accent-orange);" id="discard-target-text">Atman Gereken: 0</strong>
+      </p>
+      
+      <div class="trade-resource-picker" id="discard-picker">
+        <div class="trade-res-row" data-res="wood">
+          <span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/wood_counter.png" class="trade-res-icon" alt="Wood"> WOOD (<span class="res-owned">0</span>)</span>
+          <button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button>
+        </div>
+        <div class="trade-res-row" data-res="stone">
+          <span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/stone_counter.png" class="trade-res-icon" alt="Stone"> STONE (<span class="res-owned">0</span>)</span>
+          <button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button>
+        </div>
+        <div class="trade-res-row" data-res="iron">
+          <span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/iron_counter.png" class="trade-res-icon" alt="Iron"> IRON (<span class="res-owned">0</span>)</span>
+          <button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button>
+        </div>
+        <div class="trade-res-row" data-res="gold">
+          <span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/gold_counter.png" class="trade-res-icon" alt="Gold"> GOLD (<span class="res-owned">0</span>)</span>
+          <button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button>
+        </div>
+        <div class="trade-res-row" data-res="food">
+          <span><img src="/deep_sea_pulse_separate_png_only/icons_resources_actions/food_counter.png" class="trade-res-icon" alt="Food"> FOOD (<span class="res-owned">0</span>)</span>
+          <button class="res-minus">-</button><span class="res-count">0</span><button class="res-plus">+</button>
+        </div>
+      </div>
+      
+      <div class="trade-actions" style="margin-top: 16px;">
+        <button class="btn-modal btn-confirm disabled" id="btn-discard-confirm" style="width: 100%; justify-content:center;">Feda Et (<span id="discard-selected">0</span>/<span id="discard-required">0</span>)</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Create Room Modal -->
   <div class="modal-overlay hidden" id="modal-create-room">
     <div class="modal-card">
@@ -402,6 +440,40 @@
       <div class="modal-actions">
         <button class="btn-modal btn-cancel" id="btn-cancel-create">Cancel</button>
         <button class="btn-modal btn-confirm" id="btn-confirm-create">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Navy Choice Modal -->
+  <div class="modal-overlay hidden" id="modal-navy-choice">
+    <div class="modal-card">
+      <h3>⚓ Donanma Kullanımı</h3>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px; text-align:center;">Donanmayı nasıl kullanmak istersin?</p>
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <button class="btn-modal btn-confirm" id="btn-navy-modal-army" style="background:var(--accent-cyan); width:100%; justify-content:center;">
+          🛡️ Orduya Kat (En Büyük Ordu Puanı)
+        </button>
+        <button class="btn-modal btn-confirm" id="btn-navy-modal-attack" style="background:var(--accent-red); width:100%; justify-content:center;">
+          💥 Saldırı Yap (Rakip Gemisi Yık)
+        </button>
+        <button class="btn-modal btn-cancel" id="btn-navy-cancel" style="width:100%; justify-content:center; margin-top:8px;">İptal</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shield Choice Modal -->
+  <div class="modal-overlay hidden" id="modal-shield-choice">
+    <div class="modal-card">
+      <h3>🔰 Kalkan Yönetimi</h3>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px; text-align:center;">Kalkan ile kendi gemilerini koruyabilirsin. (Maliyet: 3⛏️ 3🪙)</p>
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <button class="btn-modal btn-confirm" id="btn-shield-buy" style="background:var(--accent-cyan); width:100%; justify-content:center;">
+          🛒 Yeni Kalkan Satın Al
+        </button>
+        <button class="btn-modal btn-confirm" id="btn-shield-apply" style="background:var(--accent-green); width:100%; justify-content:center;">
+          🛡️ Envanterdeki Kalkanı Uygula
+        </button>
+        <button class="btn-modal btn-cancel" id="btn-shield-cancel" style="width:100%; justify-content:center; margin-top:8px;">İptal</button>
       </div>
     </div>
   </div>

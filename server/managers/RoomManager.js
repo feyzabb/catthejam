@@ -14,7 +14,10 @@ class RoomManager {
     const broadcastFn = (roomId, event, data) => {
       this.io.to(roomId).emit(event, data);
     };
-    const room = new Room(name, creatorData, broadcastFn);
+    const sendToPlayerFn = (socketId, event, data) => {
+      this.io.to(socketId).emit(event, data);
+    };
+    const room = new Room(name, creatorData, broadcastFn, sendToPlayerFn);
     this.rooms.set(room.id, room);
     console.log(`[RoomManager] Room created: ${room.id} "${room.name}"`);
     return room;

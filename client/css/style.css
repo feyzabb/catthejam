@@ -324,9 +324,11 @@ body {
 
 /* ── Top Bar ── */
 .game-hud-top {
+  position: relative;
   display: flex; align-items: stretch; justify-content: space-between;
-  padding: 8px 16px; z-index: 10; gap: 12px;
-  background: linear-gradient(180deg, rgba(6,10,20,0.97) 60%, transparent);
+  padding: 8px 16px 10px 16px; z-index: 10; gap: 12px;
+  background: rgba(6,10,20,0.97);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
 }
 
 /* Resource Panel (left) */
@@ -416,7 +418,7 @@ body {
 .btn-roll:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(251,191,36,0.5); }
 
 /* ── Turn Timer ── */
-.turn-timer { position: absolute; top: 62px; left: 0; right: 0; height: 3px; z-index: 15; }
+.turn-timer { position: absolute; bottom: 0; left: 0; right: 0; height: 3px; z-index: 15; }
 .turn-timer-bar {
   height: 100%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple));
   transition: width 1s linear; border-radius: 0 2px 2px 0;
@@ -563,6 +565,20 @@ body {
   pointer-events: none;
 }
 
+.edge-slot.navy-target {
+  background-color: rgba(239, 68, 68, 0.4);
+  border-color: rgba(239, 68, 68, 0.8);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+  z-index: 20;
+}
+
+.edge-slot.navy-target:hover {
+  background-color: rgba(239, 68, 68, 0.7) !important;
+  border-color: rgba(239, 68, 68, 1) !important;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.9);
+  transform: translate(-50%, -50%) scaleY(2);
+}
+
 /* ── Trade Tab System ── */
 .trade-tabs {
   display: flex; gap: 0; margin-bottom: 14px;
@@ -695,3 +711,5 @@ body {
 #btn-accept-trade  { background: linear-gradient(135deg, var(--accent-green), #16a34a); }
 #btn-reject-trade  { background: rgba(100,116,139,0.5); }
 #btn-show-counter  { background: var(--accent-orange); color: #1e293b; font-weight: 700; }
+
+button:disabled { opacity: 0.4; cursor: not-allowed !important; pointer-events: none; }

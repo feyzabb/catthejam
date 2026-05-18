@@ -43,8 +43,11 @@ class Player {
 
     // Victory points
     this.victoryPoints = 0;
-    this.devCardsVp = 0;
     this.knightsPlayed = 0;
+
+    // Shields (Replacing Dev Cards)
+    this.unplayedShields = 0;
+    this.activeShields = []; // array of hex strings "q,r"
 
     // Buildings & Roads (tracked by vertex/edge ID)
     this.villages = [];    // vertex IDs
@@ -108,7 +111,7 @@ class Player {
    * Calculate victory points.
    */
   calculateVP(longestRoadId = null, largestArmyId = null) {
-    this.victoryPoints = this.villages.length + (this.cities.length * 2) + this.devCardsVp;
+    this.victoryPoints = this.villages.length + (this.cities.length * 2);
     if (this.id === longestRoadId) this.victoryPoints += 2;
     if (this.id === largestArmyId) this.victoryPoints += 2;
     return this.victoryPoints;
@@ -151,6 +154,7 @@ class Player {
       cities: [...this.cities],
       roads: [...this.roads],
       knightsPlayed: this.knightsPlayed,
+      unplayedShields: this.unplayedShields,
       setupPlaced: this.setupPlaced,
     };
   }
